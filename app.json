@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "DriverPro",
+    "slug": "driverpro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/logo.png",
+    "scheme": "driverpro",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mcintosh.driverpro",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "DriverPro needs access to your photos to let you upload your insurance and registration documents.",
+        "NSLocationWhenInUseUsageDescription": "DriverPro needs to track your location to calculate mileage and tax deductions while you drive.",
+        "NSLocationAlwaysUsageDescription": "DriverPro needs to track your location to calculate mileage and tax deductions while you drive."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#121212"
+      },
+      "package": "com.driverpro.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/logo.png"
+    },
+    "plugins": [
+      "expo-apple-authentication",
+      "expo-image-picker",
+      "expo-document-picker",
+      "expo-local-authentication",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "af9c20a9-4e15-411c-accc-c9bd18273cc2"
+      }
+    }
+  }
+}
