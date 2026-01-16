@@ -1,208 +1,176 @@
 import { Ionicons } from '@expo/vector-icons';
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as LocalAuthentication from 'expo-local-authentication';
-import { StatusBar } from 'expo-status-bar';
-import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
-import { useEffect, useState } from 'react';
-import { Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { auth } from '../firebaseConfig';
-import COLORS from '../styles/colors';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as Font from 'expo-font';
+import * as Location from 'expo-location';
+import * as SplashScreen from 'expo-splash-screen';
+import * as TaskManager from 'expo-task-manager';
+import { onAuthStateChanged } from 'firebase/auth';
+import { useCallback, useEffect, useState } from 'react';
+import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
 
-export default function LoginScreen({ navigation }) {
-  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
-  const [isAppleAuthAvailable, setIsAppleAuthAvailable] = useState(false);
+// --- FIREBASE CONFIG ---
+import { auth } from './src/firebaseConfig';
+
+// --- IMPORT ALL SCREENS ---
+import DashboardScreen from './src/screens/DashboardScreen';
+import DocumentUploadScreen from './src/screens/DocumentUploadScreen';
+import LoginScreen from './src/screens/LoginScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
+import TrackScreen from './src/screens/TrackScreen';
+import WalletScreen from './src/screens/WalletScreen';
+
+// Ignore specific warnings for a cleaner console
+LogBox.ignoreLogs(['Setting a timer']);
+
+// --- BACKGROUND TASK DEFINITIONS ---
+const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
+const GEOFENCE_TASK = 'geofence-tracking-task';
+
+// 1. GPS Tracking Task
+TaskManager.defineTask(BACKGROUND_TRACKING_TASK, ({ data, error }) => {
+  if (error) {
+    console.error("Background Tracking Error:", error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    console.log("Background location received:", locations);
+  }
+});
+
+// 2. Geofencing Task
+TaskManager.defineTask(GEOFENCE_TASK, ({ data: { eventType, region }, error }) => {
+  if (error) {
+    console.error("Geofence Error:", error);
+    return;
+  }
+  if (eventType === Location.GeofencingEventType.Exit) {
+    console.log("Exited Home Geofence - Starting Auto-Track:", region.identifier);
+  } else if (eventType === Location.GeofencingEventType.Enter) {
+    console.log("Entered Home Geofence - Ending Auto-Track:", region.identifier);
+  }
+});
+
+// --- CONFIGURATION ---
+SplashScreen.preventAutoHideAsync();
+const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
+
+function MainTabNavigator() {
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarStyle: { 
+            backgroundColor: '#1E1E1E', 
+            borderTopColor: '#333',
+            height: 65,
+            paddingBottom: 10,
+            paddingTop: 10,
+            position: 'absolute'
+        },
+        tabBarActiveTintColor: '#2D6CDF',
+        tabBarInactiveTintColor: 'gray',
+        tabBarIcon: ({ focused, color, size }) => {
+          let iconName;
+          if (route.name === 'Home') iconName = focused ? 'grid' : 'grid-outline';
+          else if (route.name === 'Track') iconName = focused ? 'navigate' : 'navigate-outline';
+          else if (route.name === 'Wallet') iconName = focused ? 'card' : 'card-outline';
+          return <Ionicons name={iconName} size={24} color={color} />;
+        },
+      })}
+    >
+      <Tab.Screen name="Home" component={DashboardScreen} />
+      <Tab.Screen name="Track" component={TrackScreen} />
+      <Tab.Screen name="Wallet" component={WalletScreen} />
+    </Tab.Navigator>
+  );
+}
+
+export default function App() {
+  const [appIsReady, setAppIsReady] = useState(false);
+  const [user, setUser] = useState(null);
+  const [fadeAnim] = useState(new Animated.Value(1));
 
   useEffect(() => {
-    (async () => {
+    // A. Listen for Auth Changes
+    const unsubscribeAuth = onAuthStateChanged(auth, (authenticatedUser) => {
+      setUser(authenticatedUser);
+    });
+
+    async function prepare() {
       try {
-        // 1. Check for FaceID / Fingerprint hardware support
-        const biometricCompatible = await LocalAuthentication.hasHardwareAsync();
-        setIsBiometricSupported(biometricCompatible);
-
-        // 2. Check if Apple Sign In is available on this platform/version
-        const appleCompatible = await AppleAuthentication.isAvailableAsync();
-        setIsAppleAuthAvailable(appleCompatible);
-
-        // 3. Configure Google Sign-In with Firebase Web Client ID
-        // Note: You must replace the string below with your actual ID from Firebase Console
-        GoogleSignin.configure({
-          webClientId: 'YOUR_FIREBASE_WEB_CLIENT_ID.apps.googleusercontent.com', 
-          offlineAccess: true,
-          forceCodeForRefreshToken: true,
+        // B. Load Fonts
+        await Font.loadAsync({
+          ...Ionicons.font,
         });
-      } catch (error) {
-        console.error("Initialization Error:", error);
+        
+        // C. Delay for Splash Branding
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        setAppIsReady(true);
       }
-    })();
+    }
+
+    prepare();
+    return () => {
+      if (unsubscribeAuth) unsubscribeAuth();
+    };
   }, []);
 
-  // --- HANDLE BIOMETRIC LOGIN ---
-  const handleBiometricAuth = async () => {
-    try {
-      const savedBiometrics = await LocalAuthentication.isEnrolledAsync();
-      if (!savedBiometrics) {
-        return Alert.alert(
-          'Biometrics Not Found', 
-          'Please enable FaceID or Fingerprint in your device settings to use this feature.'
-        );
-      }
-
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Authenticate to access DriverPro',
-        fallbackLabel: 'Use Passcode',
-        disableDeviceFallback: false,
-      });
-
-      if (result.success) {
-        // SUCCESS: onAuthStateChanged in App.js will handle the transition
-        console.log("Biometric Authentication Successful");
-      } else {
-        // Handle specific failure cases if needed
-        if (result.error !== 'user_cancel') {
-          Alert.alert('Authentication Failed', 'We could not verify your identity.');
-        }
-      }
-    } catch (error) {
-      console.error("Biometric Error:", error);
-      Alert.alert('Error', 'An unexpected error occurred during biometric login.');
+  const onLayoutRootView = useCallback(async () => {
+    if (appIsReady) {
+      await SplashScreen.hideAsync();
+      
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 1000,
+        useNativeDriver: true,
+      }).start();
     }
-  };
+  }, [appIsReady, fadeAnim]);
 
-  // --- HANDLE APPLE LOGIN ---
-  const handleAppleLogin = async () => {
-    try {
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-      });
-      
-      console.log("Apple Sign-In Success, creating Firebase credential...");
-      
-      // Create a Firebase credential from the Apple ID token
-      const { identityToken } = credential;
-      if (identityToken) {
-        const provider = new OAuthProvider('apple.com');
-        const fbCredential = provider.credential({
-          idToken: identityToken,
-        });
-        await signInWithCredential(auth, fbCredential);
-      }
-    } catch (e) {
-      if (e.code === 'ERR_REQUEST_CANCELED') {
-        console.log("User cancelled Apple Sign-In");
-      } else {
-        console.error("Apple Auth Error:", e);
-        Alert.alert('Apple Login Error', e.message);
-      }
-    }
-  };
-
-  // --- HANDLE GOOGLE LOGIN ---
-  const handleGoogleLogin = async () => {
-    try {
-      // Check if Play Services are available (essential for Android)
-      await GoogleSignin.hasPlayServices();
-      
-      // Trigger the Google Sign-In flow
-      const response = await GoogleSignin.signIn();
-      
-      // Extract the idToken from the response
-      const idToken = response.data?.idToken;
-      
-      if (!idToken) {
-        throw new Error("No ID Token found from Google Sign-In");
-      }
-
-      // Create Firebase credential and sign in
-      const googleCredential = GoogleAuthProvider.credential(idToken);
-      await signInWithCredential(auth, googleCredential);
-      
-      console.log("Google Login Success");
-    } catch (error) {
-      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-        console.log("User cancelled Google login");
-      } else if (error.code === statusCodes.IN_PROGRESS) {
-        console.log("Google Sign-In already in progress");
-      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        Alert.alert("Error", "Google Play Services are not available or outdated.");
-      } else {
-        console.error("Detailed Google Error:", error);
-        Alert.alert("Google Login Error", error.message);
-      }
-    }
-  };
+  if (!appIsReady) {
+    return null;
+  }
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
+    <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
       
-      {/* BRANDING SECTION */}
-      <View style={styles.logoSection}>
+      <NavigationContainer>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {user ? (
+            <>
+              {/* Prioritize document verification for new sessions */}
+              <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
+              <Stack.Screen name="Dashboard" component={MainTabNavigator} />
+              <Stack.Screen name="Settings" component={SettingsScreen} />
+            </>
+          ) : (
+            <Stack.Screen name="Login" component={LoginScreen} />
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+
+      {/* CUSTOM ANIMATED SPLASH OVERLAY */}
+      <Animated.View 
+        pointerEvents="none" 
+        style={[
+          StyleSheet.absoluteFill, 
+          { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }
+        ]}
+      >
         <Image 
-          source={require('../../assets/logo.png')} 
-          style={styles.logo} 
-          resizeMode="contain"
+            source={require('./assets/logo.png')} 
+            style={{ width: 180, height: 180, resizeMode: 'contain' }} 
         />
-        <Text style={styles.appName}>Driver<Text style={styles.appNameHighlight}>PRO</Text></Text>
-        <Text style={styles.tagline}>Protection + Profit Platform</Text>
-      </View>
+      </Animated.View>
 
-      {/* BUTTON SECTION */}
-      <View style={styles.buttonSection}>
-        
-        {/* APPLE LOGIN */}
-        {isAppleAuthAvailable && (
-          <AppleAuthentication.AppleAuthenticationButton
-            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
-            cornerRadius={12}
-            style={styles.appleButton}
-            onPress={handleAppleLogin}
-          />
-        )}
-
-        {/* GOOGLE LOGIN */}
-        <TouchableOpacity 
-          style={styles.googleButton} 
-          onPress={handleGoogleLogin}
-          activeOpacity={0.8}
-        >
-          <Image 
-            source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg' }} 
-            style={styles.gIcon} 
-          />
-          <Text style={styles.googleText}>Sign in with Google</Text>
-        </TouchableOpacity>
-
-        {/* BIOMETRICS */}
-        {isBiometricSupported && (
-          <TouchableOpacity 
-            onPress={handleBiometricAuth} 
-            style={styles.faceIdContainer}
-            activeOpacity={0.7}
-          >
-              <Ionicons 
-                name={Platform.OS === 'ios' ? "face-id" : "finger-print"} 
-                size={28} 
-                color={COLORS.primary} 
-              />
-              <Text style={styles.faceIdText}>
-                {Platform.OS === 'ios' ? 'Login with Face ID' : 'Login with Fingerprint'}
-              </Text>
-          </TouchableOpacity>
-        )}
-
-      </View>
-
-      {/* FOOTER */}
-      <View style={styles.footer}>
-        <Text style={styles.legalText}>By continuing, you agree to our Terms & Privacy Policy.</Text>
-        <View style={styles.divider} />
-        <Text style={styles.corpText}>© 2026 McIntosh Digital Solutions</Text>
-      </View>
     </View>
   );
 }
