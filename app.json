@@ -17,7 +17,10 @@
         "NSLocationWhenInUseUsageDescription": "DriverPro uses your location to calculate mileage and tax deductions in real-time.",
         "NSLocationAlwaysUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base.",
-        "UIBackgroundModes": ["location", "fetch"],
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -55,7 +58,8 @@
           "backgroundColor": "#121212"
         }
       ],
-      "expo-font"
+      "expo-font",
+      "@react-native-google-signin/google-signin"
     ],
     "extra": {
       "eas": {
