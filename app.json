@@ -15,7 +15,8 @@
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "DriverPro needs access to your photos to let you upload your insurance and registration documents.",
         "NSLocationWhenInUseUsageDescription": "DriverPro needs to track your location to calculate mileage and tax deductions while you drive.",
-        "NSLocationAlwaysUsageDescription": "DriverPro needs to track your location to calculate mileage and tax deductions while you drive."
+        "NSLocationAlwaysUsageDescription": "DriverPro needs to track your location to calculate mileage and tax deductions while you drive.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

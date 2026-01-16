@@ -3,8 +3,10 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Font from 'expo-font';
+import * as Location from 'expo-location';
 import * as SplashScreen from 'expo-splash-screen';
-import { onAuthStateChanged } from 'firebase/auth'; // Real Auth Listener
+import * as TaskManager from 'expo-task-manager';
+import { onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useState } from 'react';
 import { Animated, Image, StyleSheet, View } from 'react-native';
 
@@ -19,12 +21,40 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import TrackScreen from './src/screens/TrackScreen';
 import WalletScreen from './src/screens/WalletScreen';
 
+// --- BACKGROUND TASK DEFINITIONS ---
+const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
+const GEOFENCE_TASK = 'geofence-tracking-task';
+
+// 1. GPS Tracking Task
+TaskManager.defineTask(BACKGROUND_TRACKING_TASK, ({ data, error }) => {
+  if (error) {
+    console.error("Background Tracking Error:", error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    console.log("Background location received:", locations);
+  }
+});
+
+// 2. Geofencing Task
+TaskManager.defineTask(GEOFENCE_TASK, ({ data: { eventType, region }, error }) => {
+  if (error) {
+    console.error("Geofence Error:", error);
+    return;
+  }
+  if (eventType === Location.GeofencingEventType.Exit) {
+    console.log("Exited Home Geofence - Starting Auto-Track:", region.identifier);
+  } else if (eventType === Location.GeofencingEventType.Enter) {
+    console.log("Entered Home Geofence - Ending Auto-Track:", region.identifier);
+  }
+});
+
 // --- CONFIGURATION ---
 SplashScreen.preventAutoHideAsync();
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// --- 1. THE MAIN TAB NAVIGATOR ---
 function MainTabNavigator() {
   return (
     <Tab.Navigator
@@ -55,28 +85,20 @@ function MainTabNavigator() {
   );
 }
 
-// --- 2. THE APP ENTRY POINT ---
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
-  const [user, setUser] = useState(null); // Track real login state
+  const [user, setUser] = useState(null);
   const [fadeAnim] = useState(new Animated.Value(1));
 
   useEffect(() => {
-    // A. Listen for Auth Changes (Login/Logout)
     const unsubscribeAuth = onAuthStateChanged(auth, (authenticatedUser) => {
       setUser(authenticatedUser);
     });
 
     async function prepare() {
       try {
-        // B. Load Fonts
-        await Font.loadAsync({
-             ...Ionicons.font,
-        });
-        
-        // C. Artificial delay for Splash Branding
+        await Font.loadAsync({ ...Ionicons.font });
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
       } catch (e) {
         console.warn(e);
       } finally {
@@ -85,13 +107,12 @@ export default function App() {
     }
 
     prepare();
-    return unsubscribeAuth; // Clean up listener on unmount
+    return unsubscribeAuth;
   }, []);
 
   const onLayoutRootView = useCallback(async () => {
     if (appIsReady) {
       await SplashScreen.hideAsync();
-      
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 800,
@@ -100,30 +121,24 @@ export default function App() {
     }
   }, [appIsReady]);
 
-  if (!appIsReady) {
-    return null;
-  }
+  if (!appIsReady) return null;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
-      
       <NavigationContainer>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {user ? (
-            // --- PROTECTED APP STACK ---
             <>
               <Stack.Screen name="Dashboard" component={MainTabNavigator} />
               <Stack.Screen name="Settings" component={SettingsScreen} />
               <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
             </>
           ) : (
-            // --- AUTH STACK ---
             <Stack.Screen name="Login" component={LoginScreen} />
           )}
         </Stack.Navigator>
       </NavigationContainer>
 
-      {/* CUSTOM SPLASH OVERLAY */}
       <Animated.View 
         pointerEvents="none" 
         style={[
@@ -136,7 +151,6 @@ export default function App() {
             style={{ width: 150, height: 150, resizeMode: 'contain' }} 
         />
       </Animated.View>
-
     </View>
   );
 }

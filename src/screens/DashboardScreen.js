@@ -13,7 +13,6 @@ export default function DashboardScreen({ navigation }) {
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [tempGoal, setTempGoal] = useState('500');
   
-  // State for dynamic user data
   const [displayName, setDisplayName] = useState('');
   const [businessName, setBusinessName] = useState('');
 
@@ -22,7 +21,7 @@ export default function DashboardScreen({ navigation }) {
   useEffect(() => {
     if (!user) return;
 
-    // 1. Listen for Trip Stats (Miles & Savings)
+    // 1. Real-time Trip Data
     const qTrips = query(collection(db, "trips"), where("userId", "==", user.uid));
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
       let totalM = 0; let totalS = 0;
@@ -37,18 +36,17 @@ export default function DashboardScreen({ navigation }) {
       });
     });
 
-    // 2. Listen for User Profile & Onboarding Logic
+    // 2. Real-time Profile & Goal Data
     const unsubSettings = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         
-        // PRODUCTION ONBOARDING CHECK:
-        // If the user has no name set, they shouldn't be here. Send them to Settings.
+        // Safety Check: Force profile setup if name is missing
         if (!data.displayName || data.displayName.trim() === "") {
           Alert.alert(
             "Profile Required", 
             "Please enter your name to personalize your business dashboard.",
-            [{ text: "Go to Settings", onPress: () => navigation.replace('Settings') }]
+            [{ text: "Go to Settings", onPress: () => navigation.navigate('Settings') }]
           );
           return;
         }
@@ -60,9 +58,6 @@ export default function DashboardScreen({ navigation }) {
           setMonthlyGoal(data.monthlyGoal);
           setTempGoal(data.monthlyGoal.toString());
         }
-      } else {
-        // If the user document doesn't exist at all, force setup
-        navigation.replace('Settings');
       }
     });
 
@@ -86,10 +81,6 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
-  const handleSettings = () => {
-    navigation.navigate('Settings');
-  };
-
   const progress = Math.min((parseFloat(stats.taxSavings) / monthlyGoal) * 100, 100);
 
   return (
@@ -100,9 +91,9 @@ export default function DashboardScreen({ navigation }) {
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Welcome back,</Text>
-          <Text style={styles.username}>{displayName || "New User"}</Text>
+          <Text style={styles.username}>{displayName || "Kaleb McIntosh"}</Text>
         </View>
-        <TouchableOpacity style={styles.profileBtn} onPress={handleSettings}>
+        <TouchableOpacity style={styles.profileBtn} onPress={() => navigation.navigate('Settings')}>
            <Ionicons name="settings-outline" size={20} color="#FFF" />
         </TouchableOpacity>
       </View>
@@ -135,7 +126,6 @@ export default function DashboardScreen({ navigation }) {
                   value={tempGoal}
                   onChangeText={setTempGoal}
                   autoFocus
-                  selectTextOnFocus
                 />
                 <TouchableOpacity onPress={saveGoal}>
                   <Ionicons name="checkmark-circle" size={28} color={COLORS.success} />
@@ -164,26 +154,51 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </View>
 
+        {/* PASSENGER / SAFETY SECTION */}
+        <Text style={styles.sectionTitle}>Active Passenger</Text>
+        <View style={styles.passengerCard}>
+          <View style={styles.passengerInfo}>
+            <View style={styles.avatarCircle}>
+              <Ionicons name="person" size={24} color="white" />
+            </View>
+            <View>
+              <Text style={styles.passengerName}>Scheduled Client</Text>
+              <Text style={styles.passengerStatus}>Safety Masking Active</Text>
+            </View>
+          </View>
+          
+          <View style={styles.contactRow}>
+            <TouchableOpacity 
+              style={styles.contactBtn} 
+              onPress={() => Alert.alert("Secure Call", "Initiating masked call via WiFi/Cellular...")}
+            >
+              <Ionicons name="call" size={20} color="white" />
+              <Text style={styles.contactText}>Call</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.contactBtn, { backgroundColor: '#1A2F4B', borderColor: COLORS.primary, borderWidth: 1 }]} 
+              onPress={() => Alert.alert("Secure Text", "Opening encrypted chat...")}
+            >
+              <Ionicons name="chatbubble-ellipses" size={20} color={COLORS.primary} />
+              <Text style={[styles.contactText, { color: COLORS.primary }]}>Message</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* QUICK ACTIONS */}
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actionRow}>
-          <TouchableOpacity 
-            style={[styles.actionBtn, { backgroundColor: COLORS.success }]} 
-            onPress={() => navigation.navigate('Track')}
-          >
-            <Ionicons name="play" size={24} color="white" />
+          <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Track')}>
+            <Ionicons name="play-circle" size={32} color="white" />
             <Text style={styles.actionText}>Start Trip</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity 
-            style={[styles.actionBtn, { backgroundColor: COLORS.primary }]} 
-            onPress={() => navigation.navigate('Wallet')}
-          >
-            <Ionicons name="wallet" size={24} color="white" />
-            <Text style={styles.actionText}>Wallet</Text>
+          <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Wallet')}>
+            <Ionicons name="receipt" size={32} color="white" />
+            <Text style={styles.actionText}>View Wallet</Text>
           </TouchableOpacity>
         </View>
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -209,11 +224,19 @@ const styles = StyleSheet.create({
   progressBarBg: { height: 12, backgroundColor: '#333', borderRadius: 6, overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: 6 },
   goalSubtext: { color: COLORS.textSecondary, fontSize: 12, marginTop: 8 },
-  sectionTitle: { color: COLORS.text, fontSize: 18, fontWeight: 'bold' },
+  sectionTitle: { color: COLORS.text, fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
   statsGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
   statBox: { width: '48%', backgroundColor: COLORS.card, padding: 15, borderRadius: 15, borderWidth: 1, borderColor: '#333' },
   statLabel: { color: COLORS.textSecondary, fontSize: 12, marginBottom: 5 },
   statValue: { color: COLORS.text, fontSize: 22, fontWeight: 'bold' },
+  passengerCard: { backgroundColor: COLORS.card, padding: 20, borderRadius: 20, borderWidth: 1, borderColor: '#333', marginBottom: 25 },
+  passengerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  avatarCircle: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  passengerName: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  passengerStatus: { color: COLORS.success, fontSize: 12, fontWeight: '600', marginTop: 2 },
+  contactRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  contactBtn: { flexDirection: 'row', backgroundColor: COLORS.primary, width: '48%', height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  contactText: { color: 'white', marginLeft: 8, fontWeight: 'bold' },
   actionRow: { flexDirection: 'row', justifyContent: 'space-between' },
   actionBtn: { width: '48%', flexDirection: 'row', padding: 15, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   actionText: { color: 'white', fontWeight: 'bold', marginLeft: 10 }
