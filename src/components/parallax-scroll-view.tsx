@@ -1,3 +1,4 @@
+// src/components/parallax-scroll-view.tsx
 import type { PropsWithChildren, ReactElement } from 'react';
 import { StyleSheet, useColorScheme } from 'react-native';
 import Animated, {
@@ -7,8 +8,7 @@ import Animated, {
   useScrollOffset,
 } from 'react-native-reanimated';
 
-// FIXED: Imports point to the correct relative paths
-import { ThemedView } from './themed-view'; // FIXED: Changed from ../ to ./
+import { ThemedView } from './themed-view'; // FIXED: Same folder import
 
 const HEADER_HEIGHT = 250;
 
@@ -51,7 +51,7 @@ export default function ParallaxScrollView({
     <Animated.ScrollView
       ref={scrollRef}
       scrollEventThrottle={16}
-      style={{ flex: 1 }} // Background handled by ThemedView content
+      style={{ flex: 1 }}
     >
       <Animated.View
         style={[

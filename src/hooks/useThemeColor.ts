@@ -1,6 +1,6 @@
-// hooks/useThemeColor.ts
+// src/hooks/useThemeColor.ts
 import { useColorScheme } from 'react-native';
-import { Colors } from '../constants/theme'; // Make sure this path points to your theme file
+import { Colors } from '../constants/theme'; // FIXED: Points to 'theme.ts'
 
 export function useThemeColor(
   props: { light?: string; dark?: string },

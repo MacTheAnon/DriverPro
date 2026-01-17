@@ -1,3 +1,4 @@
+// App.js
 import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
@@ -9,7 +10,6 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useState } from 'react';
 import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
 
-// --- CONFIG ---
 import { auth } from './src/firebaseConfig';
 import DashboardScreen from './src/screens/DashboardScreen';
 import DocumentUploadScreen from './src/screens/DocumentUploadScreen';
@@ -23,14 +23,13 @@ LogBox.ignoreLogs(['Setting a timer']);
 const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
 const GEOFENCE_TASK = 'geofence-tracking-task';
 
-// --- BACKGROUND TASKS ---
 TaskManager.defineTask(BACKGROUND_TRACKING_TASK, ({ data, error }) => {
-  if (error) { console.error(error); return; }
-  if (data) { console.log("Background Loc:", data.locations); }
+  if (error) { console.error("Background Tracking Error:", error); return; }
+  if (data) { console.log("Background location received:", data.locations); }
 });
 
 TaskManager.defineTask(GEOFENCE_TASK, ({ data: { eventType, region }, error }) => {
-  if (error) { console.error(error); return; }
+  if (error) { console.error("Geofence Error:", error); return; }
   console.log("Geofence Event:", eventType, region.identifier);
 });
 
@@ -43,7 +42,7 @@ function MainTabNavigator() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarStyle: { backgroundColor: '#1E1E1E', borderTopColor: '#333', height: 60, paddingBottom: 8, paddingTop: 8 },
+        tabBarStyle: { backgroundColor: '#1E1E1E', borderTopColor: '#333', height: 65, paddingBottom: 10, paddingTop: 10, position: 'absolute' },
         tabBarActiveTintColor: '#2D6CDF',
         tabBarInactiveTintColor: 'gray',
         tabBarIcon: ({ focused, color, size }) => {
@@ -51,7 +50,7 @@ function MainTabNavigator() {
           if (route.name === 'Home') iconName = focused ? 'grid' : 'grid-outline';
           else if (route.name === 'Track') iconName = focused ? 'navigate' : 'navigate-outline';
           else if (route.name === 'Wallet') iconName = focused ? 'card' : 'card-outline';
-          return <Ionicons name={iconName} size={size} color={color} />;
+          return <Ionicons name={iconName} size={24} color={color} />;
         },
       })}
     >
@@ -75,26 +74,26 @@ export default function App() {
     async function prepare() {
       try {
         await Font.loadAsync({ ...Ionicons.font });
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 2500));
       } catch (e) { console.warn(e); } finally { setAppIsReady(true); }
     }
     prepare();
-    return unsubscribeAuth;
+    return () => { if (unsubscribeAuth) unsubscribeAuth(); };
   }, []);
 
   const onLayoutRootView = useCallback(async () => {
     if (appIsReady) {
       await SplashScreen.hideAsync();
-      Animated.timing(fadeAnim, { toValue: 0, duration: 800, useNativeDriver: true }).start();
+      Animated.timing(fadeAnim, { toValue: 0, duration: 1000, useNativeDriver: true }).start();
     }
-  }, [appIsReady]);
+  }, [appIsReady, fadeAnim]);
 
   if (!appIsReady) return null;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
       <NavigationContainer>
-        <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
           {user ? (
             <>
               <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
@@ -106,9 +105,8 @@ export default function App() {
           )}
         </Stack.Navigator>
       </NavigationContainer>
-
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center' }]}>
-        <Image source={require('./assets/logo.png')} style={{ width: 150, height: 150, resizeMode: 'contain' }} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}>
+        <Image source={require('./assets/logo.png')} style={{ width: 180, height: 180, resizeMode: 'contain' }} />
       </Animated.View>
     </View>
   );

@@ -1,7 +1,6 @@
+// src/components/themed-view.tsx
 import { View, type ViewProps } from 'react-native';
-
-// FIXED: Points to the correct folder and correct filename (CamelCase)
-import { useThemeColor } from '../hooks/useThemeColor';
+import { useThemeColor } from '../hooks/useThemeColor'; // FIXED: Relative path
 
 export type ThemedViewProps = ViewProps & {
   lightColor?: string;
