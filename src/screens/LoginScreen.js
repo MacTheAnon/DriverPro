@@ -5,8 +5,8 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { StatusBar } from 'expo-status-bar';
 import { GoogleAuthProvider, OAuthProvider, signInWithCredential } from 'firebase/auth';
 import { useEffect, useState } from 'react';
-import { Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-// FIXED: Using SafeAreaView
+import { Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+// FIXED: SafeAreaView imports
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth } from '../firebaseConfig';
 import COLORS from '../styles/colors';
@@ -25,7 +25,7 @@ export default function LoginScreen({ navigation }) {
         setIsAppleAuthAvailable(appleCompatible);
 
         GoogleSignin.configure({
-          // FIXED: Real Client ID
+          // Your verified Client ID
           webClientId: '1083485928900-lg5i5ehmtcls7e5fo6s23qsc907ik24b.apps.googleusercontent.com', 
           offlineAccess: true,
           forceCodeForRefreshToken: true,
@@ -100,93 +100,101 @@ export default function LoginScreen({ navigation }) {
   };
 
   return (
-    // FIXED: SafeAreaView prevents overlap
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
       
-      <View style={styles.logoSection}>
-        <Image 
-          source={require('../../assets/logo.png')} 
-          style={styles.logo} 
-          resizeMode="contain"
-        />
-        <Text style={styles.appName}>Driver<Text style={styles.appNameHighlight}>PRO</Text></Text>
-        <Text style={styles.tagline}>Protection + Profit Platform</Text>
-      </View>
-
-      <View style={styles.buttonSection}>
-        {isAppleAuthAvailable && (
-          <AppleAuthentication.AppleAuthenticationButton
-            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
-            cornerRadius={14}
-            style={styles.appleButton}
-            onPress={handleAppleLogin}
-          />
-        )}
-
-        <TouchableOpacity 
-          style={styles.googleButton} 
-          onPress={handleGoogleLogin}
-          activeOpacity={0.8}
-        >
+      {/* FIXED: ScrollView prevents overlap on small screens */}
+      <ScrollView 
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.logoSection}>
           <Image 
-            source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg' }} 
-            style={styles.gIcon} 
+            source={require('../../assets/logo.png')} 
+            style={styles.logo} 
+            resizeMode="contain"
           />
-          <Text style={styles.googleText}>Sign in with Google</Text>
-        </TouchableOpacity>
+          <Text style={styles.appName}>Driver<Text style={styles.appNameHighlight}>PRO</Text></Text>
+          <Text style={styles.tagline}>Protection + Profit Platform</Text>
+        </View>
 
-        {isBiometricSupported && (
+        <View style={styles.buttonSection}>
+          {isAppleAuthAvailable && (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+              cornerRadius={14}
+              style={styles.appleButton}
+              onPress={handleAppleLogin}
+            />
+          )}
+
           <TouchableOpacity 
-            onPress={handleBiometricAuth} 
-            style={styles.faceIdContainer}
-            activeOpacity={0.7}
+            style={styles.googleButton} 
+            onPress={handleGoogleLogin}
+            activeOpacity={0.8}
           >
-              <Ionicons 
-                // FIXED: Changed to scan-outline to prevent crash
-                name={Platform.OS === 'ios' ? "scan-outline" : "finger-print"} 
-                size={30} 
-                color={COLORS.primary} 
-              />
-              <Text style={styles.faceIdText}>
-                {Platform.OS === 'ios' ? 'Login with Face ID' : 'Login with Fingerprint'}
-              </Text>
+            <Image 
+              source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg' }} 
+              style={styles.gIcon} 
+            />
+            <Text style={styles.googleText}>Sign in with Google</Text>
           </TouchableOpacity>
-        )}
-      </View>
 
-      <View style={styles.footer}>
-        <Text style={styles.legalText}>By continuing, you agree to our Terms & Privacy Policy.</Text>
-        <View style={styles.divider} />
-        <Text style={styles.corpText}>© 2026 McIntosh Digital Solutions</Text>
-      </View>
+          {isBiometricSupported && (
+            <TouchableOpacity 
+              onPress={handleBiometricAuth} 
+              style={styles.faceIdContainer}
+              activeOpacity={0.7}
+            >
+                <Ionicons 
+                  name={Platform.OS === 'ios' ? "scan-outline" : "finger-print"} 
+                  size={30} 
+                  color={COLORS.primary} 
+                />
+                <Text style={styles.faceIdText}>
+                  {Platform.OS === 'ios' ? 'Login with Face ID' : 'Login with Fingerprint'}
+                </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.legalText}>By continuing, you agree to our Terms & Privacy Policy.</Text>
+          <View style={styles.divider} />
+          <Text style={styles.corpText}>© 2026 McIntosh Digital Solutions</Text>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  // FIXED: Adjusted padding for better spacing
-  container: { flex: 1, backgroundColor: COLORS.background, padding: 24, justifyContent: 'space-between' },
-  logoSection: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
-  logo: { width: 180, height: 180, marginBottom: 25 },
+  safeArea: { flex: 1, backgroundColor: COLORS.background },
+  // FIXED: FlexGrow allows the content to expand or scroll as needed
+  scrollContainer: { flexGrow: 1, justifyContent: 'space-between', padding: 24, paddingBottom: 40 },
+  
+  logoSection: { alignItems: 'center', marginTop: 40, marginBottom: 40 },
+  logo: { width: 160, height: 160, marginBottom: 20 },
   appName: { fontSize: 42, fontWeight: 'bold', color: 'white', letterSpacing: 1.5 },
   appNameHighlight: { color: COLORS.primary, fontStyle: 'italic' },
-  tagline: { fontSize: 18, color: '#999', marginTop: 10, fontWeight: '500' },
-  buttonSection: { width: '100%', paddingBottom: 40 },
-  appleButton: { width: '100%', height: 60, marginBottom: 18 },
+  tagline: { fontSize: 16, color: '#999', marginTop: 10, fontWeight: '500', textAlign: 'center' },
+  
+  buttonSection: { width: '100%', marginBottom: 30 },
+  appleButton: { width: '100%', height: 55, marginBottom: 15 },
   googleButton: { 
-    width: '100%', height: 60, backgroundColor: 'white', 
-    borderRadius: 16, justifyContent: 'center', alignItems: 'center', 
-    flexDirection: 'row', marginBottom: 25,
+    width: '100%', height: 55, backgroundColor: 'white', 
+    borderRadius: 14, justifyContent: 'center', alignItems: 'center', 
+    flexDirection: 'row', marginBottom: 20,
     shadowColor: "#000", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 4.65, elevation: 6
   },
-  gIcon: { width: 24, height: 24, marginRight: 18 },
-  googleText: { color: '#000', fontWeight: '700', fontSize: 18 },
-  faceIdContainer: { alignItems: 'center', padding: 15, flexDirection: 'row', justifyContent: 'center', marginTop: 15 },
-  faceIdText: { color: COLORS.primary, fontSize: 18, fontWeight: '700', marginLeft: 15 },
-  footer: { alignItems: 'center', marginBottom: 20 },
-  legalText: { color: '#666', fontSize: 13, textAlign: 'center', lineHeight: 20 },
-  divider: { height: 1, width: 50, backgroundColor: '#333', marginVertical: 15 },
-  corpText: { color: '#444', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 }
+  gIcon: { width: 24, height: 24, marginRight: 15 },
+  googleText: { color: '#000', fontWeight: '700', fontSize: 17 },
+  faceIdContainer: { alignItems: 'center', padding: 10, flexDirection: 'row', justifyContent: 'center' },
+  faceIdText: { color: COLORS.primary, fontSize: 17, fontWeight: '700', marginLeft: 10 },
+  
+  footer: { alignItems: 'center' },
+  legalText: { color: '#666', fontSize: 12, textAlign: 'center', lineHeight: 18, marginBottom: 15 },
+  divider: { height: 1, width: 40, backgroundColor: '#333', marginBottom: 15 },
+  corpText: { color: '#444', fontSize: 11, fontWeight: '800', letterSpacing: 1 }
 });

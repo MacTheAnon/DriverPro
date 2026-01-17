@@ -47,7 +47,7 @@ export default function WalletScreen() {
       setTotalSavings(savingsAcc.toFixed(2));
     });
 
-    // 3. Real-time Expense Logs (NEW)
+    // 3. Real-time Expense Logs
     const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubExpenses = onSnapshot(qExpenses, (snapshot) => {
       let expAcc = 0;
@@ -65,7 +65,7 @@ export default function WalletScreen() {
     return () => { unsubTrips(); unsubExpenses(); };
   }, [user]);
 
-  // --- FIXED EXPORT FUNCTION ---
+  // --- EXPORT FUNCTION ---
   const handleExport = async () => {
     if (trips.length === 0 && expenses.length === 0) {
       Alert.alert("No Data", "Track some trips or add expenses first!");
@@ -92,7 +92,7 @@ export default function WalletScreen() {
     
     try {
       await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
-      // FIXED: Added UTI for better iOS compatibility
+      // FIXED: UTI included for iOS compatibility
       await Sharing.shareAsync(fileUri, { 
         mimeType: 'text/csv', 
         dialogTitle: 'Export Tax Report',
