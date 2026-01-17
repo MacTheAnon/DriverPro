@@ -1,8 +1,9 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
+// ADDED: Import Storage
+import { getStorage } from "firebase/storage";
 
-// FIXED: I put your REAL key here (ending in Qjzio)
 const firebaseConfig = {
   apiKey: "AIzaSyDPKxSCMQvzbonJEduiexEvo7WgXlQjzio",
   authDomain: "driverpro-web.firebaseapp.com",
@@ -13,13 +14,10 @@ const firebaseConfig = {
   measurementId: "G-9KCB85D8L2"
 };
 
-// Initialize App
 const app = initializeApp(firebaseConfig);
-
-// Use simple Auth so you don't need a rebuild right now
 const auth = getAuth(app);
-
 const db = getFirestore(app);
+// ADDED: Initialize Storage
+const storage = getStorage(app);
 
-export { auth, db };
-
+export { auth, db, storage };

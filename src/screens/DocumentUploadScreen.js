@@ -2,33 +2,32 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
+import { doc, setDoc } from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import COLORS from '../styles/colors';
-// FIXED: Import the Permission Hook
+import { auth, db, storage } from '../firebaseConfig'; // Added storage import
 import { usePermissions } from '../hooks/usePermissions';
+import COLORS from '../styles/colors';
 
 export default function DocumentUploadScreen({ navigation }) {
   const [insuranceImage, setInsuranceImage] = useState(null);
   const [registrationImage, setRegistrationImage] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // FIXED: Destructure the camera request from the hook
   const { requestCamera } = usePermissions();
 
-  // 1. Pick Photo (Now uses Hook + Camera for scanning)
+  // 1. Pick Photo (Camera)
   const pickImage = async (type) => {
-    // A. Use the Hook to politely ask for permission
     const hasPermission = await requestCamera();
     if (!hasPermission) return;
 
-    // B. Launch Camera (Better for scanning documents than Gallery)
     try {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.8,
+        quality: 0.7, // Slightly lower quality for faster uploads
       });
 
       if (!result.canceled) {
@@ -40,7 +39,7 @@ export default function DocumentUploadScreen({ navigation }) {
     }
   };
 
-  // 2. Pick Document (PDF) - Remains the same
+  // 2. Pick Document (File)
   const pickDocument = async (type) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -57,7 +56,21 @@ export default function DocumentUploadScreen({ navigation }) {
     }
   };
 
-  // 3. Submit Logic
+  // --- NEW: Real Upload Logic ---
+  const uploadToFirebase = async (uri, path) => {
+    const fetchResponse = await fetch(uri);
+    const theBlob = await fetchResponse.blob();
+    
+    const imageRef = ref(storage, path);
+    
+    // Upload the blob
+    await uploadBytes(imageRef, theBlob);
+    
+    // Get the public URL
+    const downloadUrl = await getDownloadURL(imageRef);
+    return downloadUrl;
+  };
+
   const handleSubmit = async () => {
     if (!insuranceImage || !registrationImage) {
       Alert.alert('Missing Documents', 'Please upload both Insurance and Registration to continue.');
@@ -65,16 +78,44 @@ export default function DocumentUploadScreen({ navigation }) {
     }
 
     setIsUploading(true);
-    // Simulate network request
-    setTimeout(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      // 1. Upload Insurance
+      const insUrl = await uploadToFirebase(
+        insuranceImage, 
+        `users/${user.uid}/documents/insurance_${Date.now()}`
+      );
+
+      // 2. Upload Registration
+      const regUrl = await uploadToFirebase(
+        registrationImage, 
+        `users/${user.uid}/documents/registration_${Date.now()}`
+      );
+
+      // 3. Save Links to Firestore Profile
+      await setDoc(doc(db, "users", user.uid), {
+        documents: {
+          insuranceUrl: insUrl,
+          registrationUrl: regUrl,
+          uploadedAt: new Date().toISOString()
+        },
+        documentStatus: 'Verified' // Auto-verify for now
+      }, { merge: true });
+
       setIsUploading(false);
-      Alert.alert('Success', 'Documents uploaded successfully!', [
+      Alert.alert('Success', 'Documents uploaded securely.', [
         { text: 'Finish Setup', onPress: () => navigation.replace('Dashboard') }
       ]);
-    }, 2000);
+
+    } catch (error) {
+      console.error(error);
+      setIsUploading(false);
+      Alert.alert('Upload Failed', 'Could not upload documents. Please check your connection.');
+    }
   };
 
-  // 4. Card Component
   const UploadCard = ({ title, uri, type }) => {
     const isPdf = uri ? uri.toLowerCase().includes('.pdf') : false;
 
@@ -101,7 +142,6 @@ export default function DocumentUploadScreen({ navigation }) {
           </TouchableOpacity>
         ) : (
           <View style={styles.selectionRow}>
-            {/* OPTION 1: Scan with Camera (Uses Hook) */}
             <TouchableOpacity style={styles.optionBtn} onPress={() => pickImage(type)}>
                <Ionicons name="camera" size={28} color={COLORS.primary} />
                <Text style={styles.optionText}>Scan</Text>
@@ -109,7 +149,6 @@ export default function DocumentUploadScreen({ navigation }) {
 
             <View style={styles.divider} />
 
-            {/* OPTION 2: Upload File */}
             <TouchableOpacity style={styles.optionBtn} onPress={() => pickDocument(type)}>
                <Ionicons name="document-text" size={28} color={COLORS.textSecondary} />
                <Text style={styles.optionText}>PDF/File</Text>
