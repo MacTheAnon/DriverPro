@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore'; // Added Firebase
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+// FIXED: Added Platform to imports
+import { Alert, Dimensions, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { auth, db } from '../firebaseConfig'; // Added config import
+import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
 const { width, height } = Dimensions.get('window');
@@ -13,13 +14,12 @@ export default function TrackScreen() {
   const [location, setLocation] = useState(null);
   const [isTracking, setIsTracking] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
-  const [distance, setDistance] = useState(0); // in miles
-  const [earnings, setEarnings] = useState(0); // $0.675 per mile
+  const [distance, setDistance] = useState(0); 
+  const [earnings, setEarnings] = useState(0); 
   
   const mapRef = useRef(null);
   const subscriptionRef = useRef(null);
 
-  // 1. Ask for Permission on Load
   useEffect(() => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
@@ -33,19 +33,17 @@ export default function TrackScreen() {
     })();
   }, []);
 
-  // 2. Start Tracking Function
   const startTrip = async () => {
     setIsTracking(true);
-    setRouteCoordinates([]); // Reset path
+    setRouteCoordinates([]); 
     setDistance(0);
     setEarnings(0);
 
-    // Watch position updates
     subscriptionRef.current = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.High,
-        timeInterval: 2000, // Update every 2 seconds
-        distanceInterval: 10, // Update every 10 meters
+        timeInterval: 2000, 
+        distanceInterval: 10, 
       },
       (newLocation) => {
         const { latitude, longitude } = newLocation.coords;
@@ -53,21 +51,15 @@ export default function TrackScreen() {
 
         setLocation(newLocation);
         
-        // Add new point to the path line
         setRouteCoordinates((prevRoute) => {
            const newRoute = [...prevRoute, newCoordinate];
-           
-           // Calculate rough distance (Simplified for demo)
            if (prevRoute.length > 0) {
-             // In a real app, we'd use the Haversine formula here
-             // For this demo, we assume each update is roughly 0.01 miles for visual feedback
              setDistance(d => d + 0.01);
              setEarnings(e => e + (0.01 * 0.675));
            }
            return newRoute;
         });
 
-        // Keep map centered on car
         mapRef.current?.animateToRegion({
           latitude,
           longitude,
@@ -78,11 +70,9 @@ export default function TrackScreen() {
     );
   };
 
-  // 3. Stop Tracking Function (Saves to Firebase)
   const stopTrip = async () => {
     setIsTracking(false);
     
-    // Stop the GPS watcher
     if (subscriptionRef.current) {
       await subscriptionRef.current.remove();
     }
@@ -90,7 +80,6 @@ export default function TrackScreen() {
     try {
       console.log("Saving trip to Firebase...");
       
-      // Attempt to save to Firestore
       const docRef = await addDoc(collection(db, "trips"), {
         userId: auth.currentUser?.uid || "test_user_kaleb",
         miles: distance.toFixed(2),
@@ -111,12 +100,12 @@ export default function TrackScreen() {
   return (
     <View style={styles.container}>
       
-      {/* THE MAP */}
       {location ? (
         <MapView
           ref={mapRef}
           style={styles.map}
-          provider={PROVIDER_GOOGLE}
+          // FIXED: Only use Google Maps on Android. iOS will default to Apple Maps.
+          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
           initialRegion={{
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
@@ -126,7 +115,6 @@ export default function TrackScreen() {
           showsUserLocation={true}
           followsUserLocation={true}
         >
-          {/* Draw the Blue Path Line */}
           <Polyline coordinates={routeCoordinates} strokeWidth={5} strokeColor={COLORS.primary} />
         </MapView>
       ) : (
@@ -135,7 +123,6 @@ export default function TrackScreen() {
         </View>
       )}
 
-      {/* OVERLAY STATS CARD */}
       <View style={styles.statsCard}>
         <View style={styles.statItem}>
            <Text style={styles.statLabel}>DISTANCE</Text>
@@ -148,7 +135,6 @@ export default function TrackScreen() {
         </View>
       </View>
 
-      {/* START/STOP BUTTON */}
       <TouchableOpacity 
         style={[styles.button, { backgroundColor: isTracking ? COLORS.danger : COLORS.success }]}
         onPress={isTracking ? stopTrip : startTrip}
@@ -164,10 +150,8 @@ export default function TrackScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   map: { width: width, height: height },
-  
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
   loadingText: { color: 'white', fontSize: 18 },
-
   statsCard: {
     position: 'absolute',
     top: 60,
@@ -190,7 +174,6 @@ const styles = StyleSheet.create({
   statValue: { color: 'white', fontSize: 24, fontWeight: 'bold', marginTop: 5 },
   unit: { fontSize: 14, color: '#888' },
   divider: { width: 1, backgroundColor: '#333', marginHorizontal: 10 },
-
   button: {
     position: 'absolute',
     bottom: 100,

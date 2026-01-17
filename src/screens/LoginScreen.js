@@ -16,17 +16,15 @@ export default function LoginScreen({ navigation }) {
   useEffect(() => {
     (async () => {
       try {
-        // 1. Hardware verification
         const biometricCompatible = await LocalAuthentication.hasHardwareAsync();
         setIsBiometricSupported(biometricCompatible);
 
-        // 2. Platform compatibility check
         const appleCompatible = await AppleAuthentication.isAvailableAsync();
         setIsAppleAuthAvailable(appleCompatible);
 
-        // 3. Client configuration for Google
         GoogleSignin.configure({
-          webClientId: '1083485928900-YOUR_REAL_WEB_ID.apps.googleusercontent.com', 
+          // FIXED: Used the real Web Client ID from your google-services.json
+          webClientId: '1083485928900-lg5i5ehmtcls7e5fo6s23qsc907ik24b.apps.googleusercontent.com', 
           offlineAccess: true,
           forceCodeForRefreshToken: true,
         });
@@ -143,7 +141,8 @@ export default function LoginScreen({ navigation }) {
             activeOpacity={0.7}
           >
               <Ionicons 
-                name={Platform.OS === 'ios' ? "face-id" : "finger-print"} 
+                // FIXED: 'face-id' does not exist. Using 'scan-outline' which is valid.
+                name={Platform.OS === 'ios' ? "scan-outline" : "finger-print"} 
                 size={30} 
                 color={COLORS.primary} 
               />
