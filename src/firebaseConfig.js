@@ -1,22 +1,27 @@
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getReactNativePersistence, initializeAuth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
 
+// Your verified config
 const firebaseConfig = {
-  apiKey: "AIzaSyAV9K2NLCBWhOGoKXmU0X1_PhqZycYrU3c",
+  apiKey: "AIzaSyD...", // Keep your existing keys!
   authDomain: "driverpro-web.firebaseapp.com",
   projectId: "driverpro-web",
   storageBucket: "driverpro-web.firebasestorage.app",
-  messagingSenderId: "1083485928900",
-  appId: "1:1083485928900:web:9dd3ca3fd0e09d564db891",
-  measurementId: "G-J8MPPG1SS0"
+  messagingSenderId: "563584335869",
+  appId: "1:563584335869:web:324508fa5885c34e803529",
+  measurementId: "G-9KCB85D8L2"
 };
 
-// Initialize Firebase
+// Initialize App
 const app = initializeApp(firebaseConfig);
 
-// Export services for use in your screens
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
+// FIXED: Use initializeAuth with persistence instead of getAuth()
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+});
+
+const db = getFirestore(app);
+
+export { auth, db };
