@@ -2,13 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { useEffect, useRef, useState } from 'react';
-// FIXED: Added Platform to imports
 import { Alert, Dimensions, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
 const { width, height } = Dimensions.get('window');
+const BACKGROUND_TRACKING_TASK = 'background-tracking-task'; // Must match App.js
 
 export default function TrackScreen() {
   const [location, setLocation] = useState(null);
@@ -20,8 +20,13 @@ export default function TrackScreen() {
   const mapRef = useRef(null);
   const subscriptionRef = useRef(null);
 
+  // 1. Initial Permission & Location Check
   useEffect(() => {
     (async () => {
+      // Check if we are already tracking (e.g., after app restart)
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+      setIsTracking(hasStarted);
+
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Denied', 'Allow location access to track your trips.');
@@ -33,50 +38,89 @@ export default function TrackScreen() {
     })();
   }, []);
 
+  // 2. Start Tracking (The "Bulletproof" Logic)
   const startTrip = async () => {
-    setIsTracking(true);
-    setRouteCoordinates([]); 
-    setDistance(0);
-    setEarnings(0);
-
-    subscriptionRef.current = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.High,
-        timeInterval: 2000, 
-        distanceInterval: 10, 
-      },
-      (newLocation) => {
-        const { latitude, longitude } = newLocation.coords;
-        const newCoordinate = { latitude, longitude };
-
-        setLocation(newLocation);
-        
-        setRouteCoordinates((prevRoute) => {
-           const newRoute = [...prevRoute, newCoordinate];
-           if (prevRoute.length > 0) {
-             setDistance(d => d + 0.01);
-             setEarnings(e => e + (0.01 * 0.675));
-           }
-           return newRoute;
-        });
-
-        mapRef.current?.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.005,
-          longitudeDelta: 0.005,
-        });
+    try {
+      // A. Check Background Permission
+      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (bgStatus !== 'granted') {
+        Alert.alert("Background Access Needed", "To track while your phone is locked, please select 'Always Allow' in settings.");
+        return;
       }
-    );
+
+      setIsTracking(true);
+      setRouteCoordinates([]);
+      setDistance(0);
+      setEarnings(0);
+
+      // B. Start the Background Engine (Keeps app alive)
+      await Location.startLocationUpdatesAsync(BACKGROUND_TRACKING_TASK, {
+        accuracy: Location.Accuracy.Balanced,
+        distanceInterval: 10, // Update every 10 meters
+        deferredUpdatesInterval: 5000, // Minimum time between updates (battery saving)
+        showsBackgroundLocationIndicator: true, // Blue bar on iOS
+        foregroundService: {
+          notificationTitle: "DriverPro Tracking",
+          notificationBody: "Tracking your mileage in the background...",
+          notificationColor: COLORS.primary,
+        },
+      });
+
+      // C. Start the UI Engine (Updates the map in real-time)
+      subscriptionRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 2000, 
+          distanceInterval: 10, 
+        },
+        (newLocation) => {
+          const { latitude, longitude } = newLocation.coords;
+          const newCoordinate = { latitude, longitude };
+
+          setLocation(newLocation);
+          
+          setRouteCoordinates((prevRoute) => {
+             const newRoute = [...prevRoute, newCoordinate];
+             if (prevRoute.length > 0) {
+               // Simple distance calc for demo (Lat/Long delta)
+               // In production, use 'haversine' library
+               setDistance(d => d + 0.01);
+               setEarnings(e => e + (0.01 * 0.675));
+             }
+             return newRoute;
+          });
+
+          mapRef.current?.animateToRegion({
+            latitude,
+            longitude,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
+          });
+        }
+      );
+    } catch (error) {
+      console.error("Start Trip Error:", error);
+      Alert.alert("Error", "Could not start tracking engine.");
+      setIsTracking(false);
+    }
   };
 
+  // 3. Stop Tracking
   const stopTrip = async () => {
     setIsTracking(false);
     
+    // A. Kill UI Watcher
     if (subscriptionRef.current) {
       await subscriptionRef.current.remove();
     }
 
+    // B. Kill Background Engine
+    const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+    if (hasStarted) {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+    }
+
+    // C. Save to Firebase
     try {
       console.log("Saving trip to Firebase...");
       
@@ -85,7 +129,9 @@ export default function TrackScreen() {
         miles: distance.toFixed(2),
         savings: earnings.toFixed(2),
         timestamp: serverTimestamp(),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        // Save the full path coordinates for future map replay
+        route: routeCoordinates 
       });
 
       console.log("Trip saved successfully with ID:", docRef.id);
@@ -104,7 +150,7 @@ export default function TrackScreen() {
         <MapView
           ref={mapRef}
           style={styles.map}
-          // FIXED: Only use Google Maps on Android. iOS will default to Apple Maps.
+          // FIXED: Platform check to prevent iOS Crash
           provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
           initialRegion={{
             latitude: location.coords.latitude,

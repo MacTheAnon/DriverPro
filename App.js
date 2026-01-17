@@ -9,7 +9,7 @@ import * as TaskManager from 'expo-task-manager';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useState } from 'react';
 import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
-// FIXED: Import SafeAreaProvider
+// FIXED: Required for layout safety
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { auth } from './src/firebaseConfig';
@@ -93,7 +93,7 @@ export default function App() {
   if (!appIsReady) return null;
 
   return (
-    // FIXED: Wrapped in SafeAreaProvider to fix layout overlap issues
+    // FIXED: SafeAreaProvider added
     <SafeAreaProvider>
       <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
         <NavigationContainer>
