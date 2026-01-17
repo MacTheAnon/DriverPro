@@ -1,20 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system'; // ADDED: For local storage
 import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
 import { doc, setDoc } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth, db, storage } from '../firebaseConfig'; // Added storage import
+import { auth, db } from '../firebaseConfig'; // Removed 'storage'
 import { usePermissions } from '../hooks/usePermissions';
 import COLORS from '../styles/colors';
 
 export default function DocumentUploadScreen({ navigation }) {
   const [insuranceImage, setInsuranceImage] = useState(null);
   const [registrationImage, setRegistrationImage] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const { requestCamera } = usePermissions();
 
@@ -25,9 +25,9 @@ export default function DocumentUploadScreen({ navigation }) {
 
     try {
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ImagePicker.MediaType.Images,
         allowsEditing: true,
-        quality: 0.7, // Slightly lower quality for faster uploads
+        quality: 0.7, 
       });
 
       if (!result.canceled) {
@@ -56,19 +56,23 @@ export default function DocumentUploadScreen({ navigation }) {
     }
   };
 
-  // --- NEW: Real Upload Logic ---
-  const uploadToFirebase = async (uri, path) => {
-    const fetchResponse = await fetch(uri);
-    const theBlob = await fetchResponse.blob();
-    
-    const imageRef = ref(storage, path);
-    
-    // Upload the blob
-    await uploadBytes(imageRef, theBlob);
-    
-    // Get the public URL
-    const downloadUrl = await getDownloadURL(imageRef);
-    return downloadUrl;
+  // --- NEW: Local Storage Logic ---
+  const saveToDevice = async (uri, fileName) => {
+    try {
+      // Define a permanent location in the app's document folder
+      const newPath = FileSystem.documentDirectory + fileName;
+      
+      // Copy the file from the temporary cache to permanent storage
+      await FileSystem.copyAsync({
+        from: uri,
+        to: newPath
+      });
+
+      return newPath;
+    } catch (e) {
+      console.error("Local Save Error:", e);
+      throw new Error("Could not save file to device.");
+    }
   };
 
   const handleSubmit = async () => {
@@ -77,42 +81,49 @@ export default function DocumentUploadScreen({ navigation }) {
       return;
     }
 
-    setIsUploading(true);
+    setIsSaving(true);
     const user = auth.currentUser;
-    if (!user) return;
+    
+    if (!user) {
+        Alert.alert("Error", "You must be logged in.");
+        setIsSaving(false);
+        return;
+    }
 
     try {
-      // 1. Upload Insurance
-      const insUrl = await uploadToFirebase(
+      // 1. Save Insurance Locally
+      const insPath = await saveToDevice(
         insuranceImage, 
-        `users/${user.uid}/documents/insurance_${Date.now()}`
+        `insurance_${user.uid}_${Date.now()}.jpg`
       );
 
-      // 2. Upload Registration
-      const regUrl = await uploadToFirebase(
+      // 2. Save Registration Locally
+      const regPath = await saveToDevice(
         registrationImage, 
-        `users/${user.uid}/documents/registration_${Date.now()}`
+        `registration_${user.uid}_${Date.now()}.jpg`
       );
 
-      // 3. Save Links to Firestore Profile
+      // 3. Save "Reference" to Firestore
+      // We store the local path string so the app knows where to find it later
       await setDoc(doc(db, "users", user.uid), {
         documents: {
-          insuranceUrl: insUrl,
-          registrationUrl: regUrl,
+          insuranceLocalUri: insPath,
+          registrationLocalUri: regPath,
+          storageType: 'local', // Flag to know this isn't a web URL
           uploadedAt: new Date().toISOString()
         },
-        documentStatus: 'Verified' // Auto-verify for now
+        documentStatus: 'Verified'
       }, { merge: true });
 
-      setIsUploading(false);
-      Alert.alert('Success', 'Documents uploaded securely.', [
+      setIsSaving(false);
+      Alert.alert('Success', 'Documents saved to device securely.', [
         { text: 'Finish Setup', onPress: () => navigation.replace('Dashboard') }
       ]);
 
     } catch (error) {
       console.error(error);
-      setIsUploading(false);
-      Alert.alert('Upload Failed', 'Could not upload documents. Please check your connection.');
+      setIsSaving(false);
+      Alert.alert('Save Failed', `Could not save documents: ${error.message}`);
     }
   };
 
@@ -164,7 +175,7 @@ export default function DocumentUploadScreen({ navigation }) {
       <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.title}>Verify Your Vehicle</Text>
-        <Text style={styles.subtitle}>Upload your documents to activate protection.</Text>
+        <Text style={styles.subtitle}>Save your documents securely on this device.</Text>
       </View>
       <View style={styles.content}>
         <UploadCard title="Proof of Insurance" uri={insuranceImage} type="insurance" />
@@ -172,14 +183,14 @@ export default function DocumentUploadScreen({ navigation }) {
       </View>
       <View style={styles.footer}>
         <TouchableOpacity 
-          style={[styles.submitButton, isUploading && styles.disabledButton]} 
+          style={[styles.submitButton, isSaving && styles.disabledButton]} 
           onPress={handleSubmit}
-          disabled={isUploading}
+          disabled={isSaving}
         >
-          {isUploading ? (
+          {isSaving ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text style={styles.submitText}>Submit & Continue</Text>
+            <Text style={styles.submitText}>Save & Continue</Text>
           )}
         </TouchableOpacity>
       </View>
