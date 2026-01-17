@@ -3,33 +3,40 @@
     "name": "DriverPro",
     "slug": "driverpro",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "scheme": "driverpro",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mcintosh.driverpro",
+      "buildNumber": "1",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "usesAppleSignIn": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "DriverPro needs access to your photos to let you upload your insurance and registration documents.",
         "NSLocationWhenInUseUsageDescription": "DriverPro uses your location to calculate mileage and tax deductions in real-time.",
         "NSLocationAlwaysUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base.",
-        "UIBackgroundModes": [
-          "location",
-          "fetch"
-        ],
+        "UIBackgroundModes": ["location", "fetch"],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "package": "com.mcintosh.driverpro",
+      "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#121212"
       },
-      "package": "com.driverpro.app",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.USE_BIOMETRIC",
@@ -50,6 +57,8 @@
       "expo-document-picker",
       "expo-local-authentication",
       "expo-location",
+      "expo-font",
+      "@react-native-google-signin/google-signin",
       [
         "expo-splash-screen",
         {
@@ -57,9 +66,7 @@
           "resizeMode": "contain",
           "backgroundColor": "#121212"
         }
-      ],
-      "expo-font",
-      "@react-native-google-signin/google-signin"
+      ]
     ],
     "extra": {
       "eas": {

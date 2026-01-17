@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1083485928900",
+    "project_id": "driverpro-web",
+    "storage_bucket": "driverpro-web.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1083485928900:android:f519634d3c7db4d94db891",
+        "android_client_info": {
+          "package_name": "com.mcintosh.driverpro"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1083485928900-lg5i5ehmtcls7e5fo6s23qsc907ik24b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDPKxSCMQvzbonJEduiexEvo7WgXlQjzio"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1083485928900-lg5i5ehmtcls7e5fo6s23qsc907ik24b.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

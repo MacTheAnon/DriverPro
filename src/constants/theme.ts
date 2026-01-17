@@ -1,53 +1,46 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+// Professional DriverPro Color Palette
+const primaryBlue = '#2D6CDF'; // Your main brand color
+const darkBackground = '#121212'; // True dark mode background
+const cardGrey = '#1E1E1E'; // For buttons/cards
 
 export const Colors = {
   light: {
     text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
+    background: '#FFFFFF',
+    tint: primaryBlue,
     icon: '#687076',
     tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
+    tabIconSelected: primaryBlue,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
+    text: '#FFFFFF',
+    background: darkBackground,
+    tint: primaryBlue,
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
+    tabIconSelected: primaryBlue,
+    card: cardGrey,
+    border: '#333333',
+    success: '#4CAF50', // For verified documents
+    error: '#FF5252',   // For failed tracking
   },
 };
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
+    sans: 'System',
+    mono: 'Courier',
+    bold: 'HelveticaNeue-Bold',
+  },
+  android: {
+    sans: 'sans-serif',
+    mono: 'monospace',
+    bold: 'sans-serif-condensed',
   },
   default: {
     sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
     mono: 'monospace',
-  },
-  web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
   },
 });
