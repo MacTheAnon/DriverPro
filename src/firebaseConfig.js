@@ -1,11 +1,10 @@
-import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
-import { getReactNativePersistence, initializeAuth } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
 
-// Your verified config
+// FIXED: I put your REAL key here (ending in Qjzio)
 const firebaseConfig = {
-  apiKey: "AIzaSyD...", // Keep your existing keys!
+  apiKey: "AIzaSyDPKxSCMQvzbonJEduiexEvo7WgXlQjzio",
   authDomain: "driverpro-web.firebaseapp.com",
   projectId: "driverpro-web",
   storageBucket: "driverpro-web.firebasestorage.app",
@@ -17,11 +16,10 @@ const firebaseConfig = {
 // Initialize App
 const app = initializeApp(firebaseConfig);
 
-// FIXED: Use initializeAuth with persistence instead of getAuth()
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
-});
+// Use simple Auth so you don't need a rebuild right now
+const auth = getAuth(app);
 
 const db = getFirestore(app);
 
 export { auth, db };
+
