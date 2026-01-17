@@ -4,51 +4,43 @@ import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import COLORS from '../styles/colors';
+// FIXED: Import the Permission Hook
+import { usePermissions } from '../hooks/usePermissions';
 
 export default function DocumentUploadScreen({ navigation }) {
   const [insuranceImage, setInsuranceImage] = useState(null);
   const [registrationImage, setRegistrationImage] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // 1. Pick Photo (Reverted to "Options" & Added Real Error Logging)
-  const pickImage = async (type) => {
-    try {
-      // DEBUG: Log the permission request
-      console.log("Requesting permission...");
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      console.log("Permission status:", status);
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permission Needed',
-          'Please go to Settings > Expo Go > Photos and allow "Full Access".'
-        );
-        return;
-      }
+  // FIXED: Destructure the camera request from the hook
+  const { requestCamera } = usePermissions();
 
-      console.log("Opening Gallery...");
-      const result = await ImagePicker.launchImageLibraryAsync({
-        // REVERTED: Using the "Old" way because it worked for you
-        mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+  // 1. Pick Photo (Now uses Hook + Camera for scanning)
+  const pickImage = async (type) => {
+    // A. Use the Hook to politely ask for permission
+    const hasPermission = await requestCamera();
+    if (!hasPermission) return;
+
+    // B. Launch Camera (Better for scanning documents than Gallery)
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 0.8,
       });
-
-      console.log("Gallery Result:", result.canceled ? "Cancelled" : "Success");
 
       if (!result.canceled) {
         if (type === 'insurance') setInsuranceImage(result.assets[0].uri);
         if (type === 'registration') setRegistrationImage(result.assets[0].uri);
       }
     } catch (error) {
-      console.error("PICK IMAGE ERROR:", error);
-      // SHOW REAL ERROR ON SCREEN
-      Alert.alert('Detailed Error', error.message || JSON.stringify(error));
+      Alert.alert('Camera Error', error.message);
     }
   };
 
-  // 2. Pick Document (PDF)
+  // 2. Pick Document (PDF) - Remains the same
   const pickDocument = async (type) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -73,6 +65,7 @@ export default function DocumentUploadScreen({ navigation }) {
     }
 
     setIsUploading(true);
+    // Simulate network request
     setTimeout(() => {
       setIsUploading(false);
       Alert.alert('Success', 'Documents uploaded successfully!', [
@@ -108,13 +101,15 @@ export default function DocumentUploadScreen({ navigation }) {
           </TouchableOpacity>
         ) : (
           <View style={styles.selectionRow}>
+            {/* OPTION 1: Scan with Camera (Uses Hook) */}
             <TouchableOpacity style={styles.optionBtn} onPress={() => pickImage(type)}>
-               <Ionicons name="images" size={28} color={COLORS.primary} />
-               <Text style={styles.optionText}>Photo</Text>
+               <Ionicons name="camera" size={28} color={COLORS.primary} />
+               <Text style={styles.optionText}>Scan</Text>
             </TouchableOpacity>
 
             <View style={styles.divider} />
 
+            {/* OPTION 2: Upload File */}
             <TouchableOpacity style={styles.optionBtn} onPress={() => pickDocument(type)}>
                <Ionicons name="document-text" size={28} color={COLORS.textSecondary} />
                <Text style={styles.optionText}>PDF/File</Text>
@@ -126,7 +121,7 @@ export default function DocumentUploadScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.title}>Verify Your Vehicle</Text>
@@ -149,13 +144,13 @@ export default function DocumentUploadScreen({ navigation }) {
           )}
         </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background, padding: 20 },
-  header: { marginTop: 60, marginBottom: 30 },
+  header: { marginTop: 20, marginBottom: 30 },
   title: { fontSize: 28, fontWeight: 'bold', color: COLORS.text, marginBottom: 10 },
   subtitle: { fontSize: 16, color: '#AAA', lineHeight: 22 },
   content: { flex: 1 },

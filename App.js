@@ -9,6 +9,8 @@ import * as TaskManager from 'expo-task-manager';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useState } from 'react';
 import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
+// FIXED: Import SafeAreaProvider
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { auth } from './src/firebaseConfig';
 import DashboardScreen from './src/screens/DashboardScreen';
@@ -91,23 +93,26 @@ export default function App() {
   if (!appIsReady) return null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
-      <NavigationContainer>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {user ? (
-            <>
-              <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
-              <Stack.Screen name="Dashboard" component={MainTabNavigator} />
-              <Stack.Screen name="Settings" component={SettingsScreen} />
-            </>
-          ) : (
-            <Stack.Screen name="Login" component={LoginScreen} />
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}>
-        <Image source={require('./assets/logo.png')} style={{ width: 180, height: 180, resizeMode: 'contain' }} />
-      </Animated.View>
-    </View>
+    // FIXED: Wrapped in SafeAreaProvider to fix layout overlap issues
+    <SafeAreaProvider>
+      <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
+        <NavigationContainer>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            {user ? (
+              <>
+                <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
+                <Stack.Screen name="Dashboard" component={MainTabNavigator} />
+                <Stack.Screen name="Settings" component={SettingsScreen} />
+              </>
+            ) : (
+              <Stack.Screen name="Login" component={LoginScreen} />
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}>
+          <Image source={require('./assets/logo.png')} style={{ width: 180, height: 180, resizeMode: 'contain' }} />
+        </Animated.View>
+      </View>
+    </SafeAreaProvider>
   );
 }

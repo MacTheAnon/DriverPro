@@ -6,6 +6,8 @@ import { StatusBar } from 'expo-status-bar';
 import { GoogleAuthProvider, OAuthProvider, signInWithCredential } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 import { Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+// FIXED: Import SafeAreaView
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
@@ -23,7 +25,7 @@ export default function LoginScreen({ navigation }) {
         setIsAppleAuthAvailable(appleCompatible);
 
         GoogleSignin.configure({
-          // FIXED: Used the real Web Client ID from your google-services.json
+          // FIXED: Your Real Client ID
           webClientId: '1083485928900-lg5i5ehmtcls7e5fo6s23qsc907ik24b.apps.googleusercontent.com', 
           offlineAccess: true,
           forceCodeForRefreshToken: true,
@@ -98,7 +100,8 @@ export default function LoginScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.container}>
+    // FIXED: Changed View to SafeAreaView to prevent overlap
+    <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       
       <View style={styles.logoSection}>
@@ -141,7 +144,7 @@ export default function LoginScreen({ navigation }) {
             activeOpacity={0.7}
           >
               <Ionicons 
-                // FIXED: 'face-id' does not exist. Using 'scan-outline' which is valid.
+                // FIXED: Changed "face-id" to "scan-outline" to prevent crash
                 name={Platform.OS === 'ios' ? "scan-outline" : "finger-print"} 
                 size={30} 
                 color={COLORS.primary} 
@@ -158,18 +161,19 @@ export default function LoginScreen({ navigation }) {
         <View style={styles.divider} />
         <Text style={styles.corpText}>© 2026 McIntosh Digital Solutions</Text>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background, padding: 24, justifyContent: 'space-between' },
-  logoSection: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 60 },
+  // FIXED: Removed hardcoded padding that might cause issues
+  container: { flex: 1, backgroundColor: COLORS.background, justifyContent: 'space-between', paddingHorizontal: 24 },
+  logoSection: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
   logo: { width: 180, height: 180, marginBottom: 25 },
   appName: { fontSize: 42, fontWeight: 'bold', color: 'white', letterSpacing: 1.5 },
   appNameHighlight: { color: COLORS.primary, fontStyle: 'italic' },
   tagline: { fontSize: 18, color: '#999', marginTop: 10, fontWeight: '500' },
-  buttonSection: { width: '100%', paddingBottom: 60 },
+  buttonSection: { width: '100%', paddingBottom: 20 },
   appleButton: { width: '100%', height: 60, marginBottom: 18 },
   googleButton: { 
     width: '100%', height: 60, backgroundColor: 'white', 
@@ -181,7 +185,7 @@ const styles = StyleSheet.create({
   googleText: { color: '#000', fontWeight: '700', fontSize: 18 },
   faceIdContainer: { alignItems: 'center', padding: 15, flexDirection: 'row', justifyContent: 'center', marginTop: 15 },
   faceIdText: { color: COLORS.primary, fontSize: 18, fontWeight: '700', marginLeft: 15 },
-  footer: { alignItems: 'center', marginBottom: 35 },
+  footer: { alignItems: 'center', marginBottom: 20 },
   legalText: { color: '#666', fontSize: 13, textAlign: 'center', lineHeight: 20 },
   divider: { height: 1, width: 50, backgroundColor: '#333', marginVertical: 15 },
   corpText: { color: '#444', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 }
