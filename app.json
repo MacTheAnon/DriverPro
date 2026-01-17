@@ -21,6 +21,13 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "usesAppleSignIn": true,
       "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.1083485928900-97jgmu5vhene54e94qob4v309l6t0q0f"
+            ]
+          }
+        ],
         "NSPhotoLibraryUsageDescription": "DriverPro needs access to your photos to let you upload your insurance and registration documents.",
         "NSLocationWhenInUseUsageDescription": "DriverPro uses your location to calculate mileage and tax deductions in real-time.",
         "NSLocationAlwaysUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base.",

@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactElement } from 'react';
-import { StyleSheet, useColorScheme } from 'react-native'; // Fixed: Added useColorScheme
+import { StyleSheet, useColorScheme } from 'react-native';
 import Animated, {
   interpolate,
   useAnimatedRef,
@@ -7,9 +7,8 @@ import Animated, {
   useScrollOffset,
 } from 'react-native-reanimated';
 
-// Fixed: Corrected the syntax for importing COLORS and useThemeColor
-import { ThemedView } from '../components/themed-view'; // Adjusted path to standard structure
-import { useThemeColor } from '../hooks/useThemeColor';
+// FIXED: Imports point to the correct relative paths
+import { ThemedView } from './themed-view'; // FIXED: Changed from ../ to ./
 
 const HEADER_HEIGHT = 250;
 
@@ -23,14 +22,10 @@ export default function ParallaxScrollView({
   headerImage,
   headerBackgroundColor,
 }: Props) {
-  // Logic: Automatically detects theme to apply to the scroll view background
-  const backgroundColor = useThemeColor({}, 'background');
   const colorScheme = useColorScheme() ?? 'light';
-  
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollOffset = useScrollOffset(scrollRef);
 
-  // Animation: Handles the "Parallax" movement and the "Zoom" on pull-down
   const headerAnimatedStyle = useAnimatedStyle(() => {
     return {
       transform: [
@@ -43,8 +38,8 @@ export default function ParallaxScrollView({
         },
         {
           scale: interpolate(
-            scrollOffset.value, 
-            [-HEADER_HEIGHT, 0, HEADER_HEIGHT], 
+            scrollOffset.value,
+            [-HEADER_HEIGHT, 0, HEADER_HEIGHT],
             [2, 1, 1]
           ),
         },
@@ -55,8 +50,8 @@ export default function ParallaxScrollView({
   return (
     <Animated.ScrollView
       ref={scrollRef}
-      style={{ backgroundColor, flex: 1 }}
       scrollEventThrottle={16}
+      style={{ flex: 1 }} // Background handled by ThemedView content
     >
       <Animated.View
         style={[

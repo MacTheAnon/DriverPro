@@ -1,6 +1,7 @@
 import { View, type ViewProps } from 'react-native';
 
-import { useThemeColor } from '@/hooks/use-theme-color';
+// FIXED: Points to the correct folder and correct filename (CamelCase)
+import { useThemeColor } from '../hooks/useThemeColor';
 
 export type ThemedViewProps = ViewProps & {
   lightColor?: string;
