@@ -6,10 +6,12 @@ import { StatusBar } from 'expo-status-bar';
 import { GoogleAuthProvider, OAuthProvider, signInWithCredential } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 import { Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-// FIXED: SafeAreaView imports
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth } from '../firebaseConfig';
 import COLORS from '../styles/colors';
+
+// ⚠️ REPLACE WITH YOUR ACTUAL CLIENT ID FROM GOOGLE CLOUD CONSOLE
+const GOOGLE_WEB_CLIENT_ID = '1083485928900-lg5i5ehmtcls7e5fo6s23qsc907ik24b.apps.googleusercontent.com';
 
 export default function LoginScreen({ navigation }) {
   const [isBiometricSupported, setIsBiometricSupported] = useState(false);
@@ -19,16 +21,15 @@ export default function LoginScreen({ navigation }) {
     (async () => {
       try {
         const biometricCompatible = await LocalAuthentication.hasHardwareAsync();
-        setIsBiometricSupported(biometricCompatible);
+        const enrolled = await LocalAuthentication.isEnrolledAsync();
+        setIsBiometricSupported(biometricCompatible && enrolled);
 
         const appleCompatible = await AppleAuthentication.isAvailableAsync();
         setIsAppleAuthAvailable(appleCompatible);
 
         GoogleSignin.configure({
-          // Your verified Client ID
-          webClientId: '1083485928900-lg5i5ehmtcls7e5fo6s23qsc907ik24b.apps.googleusercontent.com', 
+          webClientId: GOOGLE_WEB_CLIENT_ID, 
           offlineAccess: true,
-          forceCodeForRefreshToken: true,
         });
       } catch (error) {
         console.error("Initial configuration failed:", error);
@@ -38,11 +39,6 @@ export default function LoginScreen({ navigation }) {
 
   const handleBiometricAuth = async () => {
     try {
-      const savedBiometrics = await LocalAuthentication.isEnrolledAsync();
-      if (!savedBiometrics) {
-        return Alert.alert('Setup Required', 'No biometrics found. Enable them in your device settings.');
-      }
-
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: 'Authenticate to access DriverPro',
         fallbackLabel: 'Use Passcode',
@@ -50,11 +46,14 @@ export default function LoginScreen({ navigation }) {
       });
 
       if (result.success) {
-        console.log("Biometric signature verified.");
+        // In a real app, you would retrieve a stored token here.
+        // For this demo, we can't "auto-login" without a token storage strategy.
+        // We will just alert for now or trigger a token refresh if available.
+        Alert.alert("Verified", "Biometrics accepted. (Token logic needed for full login)");
       }
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'An unexpected biometric error occurred.');
+      Alert.alert('Error', 'Biometric authentication failed.');
     }
   };
 
@@ -103,7 +102,6 @@ export default function LoginScreen({ navigation }) {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
       
-      {/* FIXED: ScrollView prevents overlap on small screens */}
       <ScrollView 
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
@@ -171,7 +169,6 @@ export default function LoginScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  // FIXED: FlexGrow allows the content to expand or scroll as needed
   scrollContainer: { flexGrow: 1, justifyContent: 'space-between', padding: 24, paddingBottom: 40 },
   
   logoSection: { alignItems: 'center', marginTop: 40, marginBottom: 40 },

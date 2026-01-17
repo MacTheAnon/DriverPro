@@ -1,59 +1,81 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location'; // ADDED: To check real tracking status
 import { StatusBar } from 'expo-status-bar';
 import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'; // ADDED: RefreshControl
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
+const BACKGROUND_TRACKING_TASK = 'background-tracking-task'; // Must match App.js
+
 export default function DashboardScreen({ navigation }) {
-  const [stats, setStats] = useState({ milesToday: 0, taxSavings: 0, driveTime: 'Active' });
+  const [stats, setStats] = useState({ milesToday: '0.0', taxSavings: '0.00', totalDeduction: '0.00' });
+  const [isTrackingActive, setIsTrackingActive] = useState(false); // ADDED: Real status
   const [monthlyGoal, setMonthlyGoal] = useState(500); 
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [tempGoal, setTempGoal] = useState('500');
   
   const [displayName, setDisplayName] = useState('');
   const [businessName, setBusinessName] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const user = auth.currentUser;
+
+  // 1. Check Tracking Status (On Focus/Load)
+  const checkTrackingStatus = async () => {
+    const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+    setIsTrackingActive(hasStarted);
+  };
+
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      checkTrackingStatus();
+    });
+    return unsubscribeFocus;
+  }, [navigation]);
 
   useEffect(() => {
     if (!user) return;
 
-    // 1. Real-time Trip Data
+    // 2. Real-time Trip Data (Fixed Logic)
     const qTrips = query(collection(db, "trips"), where("userId", "==", user.uid));
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
-      let totalM = 0; let totalS = 0;
+      let todayM = 0; 
+      let totalS = 0;
+      
+      // Get Start of Today (00:00:00)
+      const startOfDay = new Date();
+      startOfDay.setHours(0,0,0,0);
+
       snapshot.forEach((doc) => {
-        totalM += parseFloat(doc.data().miles || 0);
-        totalS += parseFloat(doc.data().savings || 0);
+        const data = doc.data();
+        const miles = parseFloat(data.miles || 0);
+        const savings = parseFloat(data.savings || 0);
+
+        // Accumulate Lifetime Savings
+        totalS += savings;
+
+        // Accumulate ONLY Today's Miles
+        if (data.timestamp?.toDate() >= startOfDay) {
+          todayM += miles;
+        }
       });
+
       setStats({ 
-        milesToday: totalM.toFixed(1), 
-        taxSavings: totalS.toFixed(2), 
-        driveTime: 'Active' 
+        milesToday: todayM.toFixed(1), 
+        taxSavings: totalS.toFixed(2), // Total Lifetime Deduction
+        totalDeduction: totalS.toFixed(2)
       });
     });
 
-    // 2. Real-time Profile & Goal Data
+    // 3. Real-time Profile & Goal Data
     const unsubSettings = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        
-        // Safety Check: Force profile setup if name is missing
-        if (!data.displayName || data.displayName.trim() === "") {
-          Alert.alert(
-            "Profile Required", 
-            "Please enter your name to personalize your business dashboard.",
-            [{ text: "Go to Settings", onPress: () => navigation.navigate('Settings') }]
-          );
-          return;
-        }
-
         setDisplayName(data.displayName);
         setBusinessName(data.businessName || 'Independent Contractor');
-        
         if (data.monthlyGoal) {
           setMonthlyGoal(data.monthlyGoal);
           setTempGoal(data.monthlyGoal.toString());
@@ -61,8 +83,17 @@ export default function DashboardScreen({ navigation }) {
       }
     });
 
+    checkTrackingStatus();
+
     return () => { unsubTrips(); unsubSettings(); };
   }, [user]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await checkTrackingStatus();
+    // Simulate a quick reload for UX
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
 
   const saveGoal = async () => {
     const newGoal = parseFloat(tempGoal);
@@ -81,7 +112,7 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
-  const progress = Math.min((parseFloat(stats.taxSavings) / monthlyGoal) * 100, 100);
+  const progress = Math.min((parseFloat(stats.totalDeduction) / monthlyGoal) * 100, 100);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -91,22 +122,27 @@ export default function DashboardScreen({ navigation }) {
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Welcome back,</Text>
-          <Text style={styles.username}>{displayName || "Kaleb McIntosh"}</Text>
+          <Text style={styles.username}>{displayName || "Driver"}</Text>
         </View>
         <TouchableOpacity style={styles.profileBtn} onPress={() => navigation.navigate('Settings')}>
            <Ionicons name="settings-outline" size={20} color="#FFF" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
+      >
         
-        {/* STATUS CARD */}
-        <View style={styles.statusCard}>
+        {/* STATUS CARD (Dynamic) */}
+        <View style={[styles.statusCard, { borderColor: isTrackingActive ? COLORS.success : '#333' }]}>
           <View style={styles.statusRow}>
-             <View style={styles.indicator} />
-             <Text style={styles.statusText}>Tracking Active</Text>
+             <View style={[styles.indicator, { backgroundColor: isTrackingActive ? COLORS.success : COLORS.textSecondary }]} />
+             <Text style={styles.statusText}>{isTrackingActive ? "Tracking Active" : "Tracking Paused"}</Text>
           </View>
-          <Text style={styles.statusSubtext}>Monitoring {businessName}.</Text>
+          <Text style={styles.statusSubtext}>
+            {isTrackingActive ? `Monitoring ${businessName}.` : "Tap 'Start Trip' to log miles."}
+          </Text>
         </View>
 
         {/* MONTHLY GOAL SECTION */}
@@ -138,7 +174,7 @@ export default function DashboardScreen({ navigation }) {
             <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
           </View>
           <Text style={styles.goalSubtext}>
-            ${stats.taxSavings} saved of your ${monthlyGoal} target
+            ${stats.totalDeduction} saved of your ${monthlyGoal} target
           </Text>
         </View>
 
@@ -146,43 +182,11 @@ export default function DashboardScreen({ navigation }) {
         <View style={styles.statsGrid}>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Total Deduction</Text>
-            <Text style={styles.statValue}>${stats.taxSavings}</Text>
+            <Text style={styles.statValue}>${stats.totalDeduction}</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Total Miles</Text>
+            <Text style={styles.statLabel}>Miles Today</Text>
             <Text style={styles.statValue}>{stats.milesToday}</Text>
-          </View>
-        </View>
-
-        {/* PASSENGER / SAFETY SECTION */}
-        <Text style={styles.sectionTitle}>Active Passenger</Text>
-        <View style={styles.passengerCard}>
-          <View style={styles.passengerInfo}>
-            <View style={styles.avatarCircle}>
-              <Ionicons name="person" size={24} color="white" />
-            </View>
-            <View>
-              <Text style={styles.passengerName}>Scheduled Client</Text>
-              <Text style={styles.passengerStatus}>Safety Masking Active</Text>
-            </View>
-          </View>
-          
-          <View style={styles.contactRow}>
-            <TouchableOpacity 
-              style={styles.contactBtn} 
-              onPress={() => Alert.alert("Secure Call", "Initiating masked call via WiFi/Cellular...")}
-            >
-              <Ionicons name="call" size={20} color="white" />
-              <Text style={styles.contactText}>Call</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[styles.contactBtn, { backgroundColor: '#1A2F4B', borderColor: COLORS.primary, borderWidth: 1 }]} 
-              onPress={() => Alert.alert("Secure Text", "Opening encrypted chat...")}
-            >
-              <Ionicons name="chatbubble-ellipses" size={20} color={COLORS.primary} />
-              <Text style={[styles.contactText, { color: COLORS.primary }]}>Message</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -190,14 +194,30 @@ export default function DashboardScreen({ navigation }) {
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actionRow}>
           <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Track')}>
-            <Ionicons name="play-circle" size={32} color="white" />
-            <Text style={styles.actionText}>Start Trip</Text>
+            <Ionicons name={isTrackingActive ? "stop-circle" : "play-circle"} size={32} color={isTrackingActive ? COLORS.danger : "white"} />
+            <Text style={styles.actionText}>{isTrackingActive ? "Stop Trip" : "Start Trip"}</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Wallet')}>
             <Ionicons name="receipt" size={32} color="white" />
             <Text style={styles.actionText}>View Wallet</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* PASSENGER / SAFETY (Placeholder for Demo) */}
+        <View style={{marginTop: 30}}>
+          <Text style={styles.sectionTitle}>Safety Tools</Text>
+          <View style={styles.passengerCard}>
+            <View style={styles.passengerInfo}>
+              <View style={styles.avatarCircle}>
+                <Ionicons name="shield-checkmark" size={24} color="white" />
+              </View>
+              <View>
+                <Text style={styles.passengerName}>Driver Protection</Text>
+                <Text style={styles.passengerStatus}>Active & Monitoring</Text>
+              </View>
+            </View>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -210,9 +230,9 @@ const styles = StyleSheet.create({
   greeting: { color: COLORS.textSecondary, fontSize: 14 },
   username: { color: COLORS.text, fontSize: 26, fontWeight: 'bold' },
   profileBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.card, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#333' },
-  statusCard: { backgroundColor: '#1A2F4B', padding: 20, borderRadius: 15, marginBottom: 25, borderWidth: 1, borderColor: COLORS.primary },
+  statusCard: { backgroundColor: '#1A2F4B', padding: 20, borderRadius: 15, marginBottom: 25, borderWidth: 1 },
   statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
-  indicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.success, marginRight: 10 },
+  indicator: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
   statusText: { color: COLORS.text, fontSize: 18, fontWeight: 'bold' },
   statusSubtext: { color: COLORS.textSecondary, fontSize: 14 },
   goalSection: { marginBottom: 30 },
@@ -230,13 +250,10 @@ const styles = StyleSheet.create({
   statLabel: { color: COLORS.textSecondary, fontSize: 12, marginBottom: 5 },
   statValue: { color: COLORS.text, fontSize: 22, fontWeight: 'bold' },
   passengerCard: { backgroundColor: COLORS.card, padding: 20, borderRadius: 20, borderWidth: 1, borderColor: '#333', marginBottom: 25 },
-  passengerInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  passengerInfo: { flexDirection: 'row', alignItems: 'center' },
   avatarCircle: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   passengerName: { color: 'white', fontSize: 18, fontWeight: 'bold' },
   passengerStatus: { color: COLORS.success, fontSize: 12, fontWeight: '600', marginTop: 2 },
-  contactRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  contactBtn: { flexDirection: 'row', backgroundColor: COLORS.primary, width: '48%', height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  contactText: { color: 'white', marginLeft: 8, fontWeight: 'bold' },
   actionRow: { flexDirection: 'row', justifyContent: 'space-between' },
   actionBtn: { width: '48%', flexDirection: 'row', padding: 15, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   actionText: { color: 'white', fontWeight: 'bold', marginLeft: 10 }

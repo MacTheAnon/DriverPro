@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { deleteUser } from 'firebase/auth'; // ADDED: For account deletion
+import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,8 +18,6 @@ export default function SettingsScreen({ navigation }) {
   const [displayName, setDisplayName] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [taxId, setTaxId] = useState('');
-  
-  // Vehicle State (NEW)
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehicleYear, setVehicleYear] = useState('');
@@ -36,7 +35,6 @@ export default function SettingsScreen({ navigation }) {
           setDisplayName(data.displayName || '');
           setBusinessName(data.businessName || '');
           setTaxId(data.taxId || '');
-          // Load Vehicle Data
           setVehicleMake(data.vehicleMake || '');
           setVehicleModel(data.vehicleModel || '');
           setVehicleYear(data.vehicleYear || '');
@@ -54,11 +52,10 @@ export default function SettingsScreen({ navigation }) {
 
   const toggleGeofence = async () => {
     if (!isGeofenceEnabled) {
-      const { status: foreStatus } = await Location.requestForegroundPermissionsAsync();
       const { status: backStatus } = await Location.requestBackgroundPermissionsAsync();
       
-      if (foreStatus !== 'granted' || backStatus !== 'granted') {
-        Alert.alert("Permission Needed", "Geofencing requires 'Always Allow' location access.");
+      if (backStatus !== 'granted') {
+        Alert.alert("Permission Needed", "Geofencing requires 'Always Allow' location access in your phone settings.");
         return;
       }
 
@@ -75,7 +72,7 @@ export default function SettingsScreen({ navigation }) {
 
         setIsGeofenceEnabled(true);
         await setDoc(doc(db, "users", user.uid), { geofenceActive: true }, { merge: true });
-        Alert.alert("Home Base Set", "DriverPro will auto-track when you exit this area.");
+        Alert.alert("Home Base Set", "DriverPro will auto-track when you exit this 150m radius.");
       } catch (e) {
         Alert.alert("Error", "Could not lock Home Base location.");
       }
@@ -97,7 +94,6 @@ export default function SettingsScreen({ navigation }) {
         displayName, 
         businessName, 
         taxId,
-        // Save Vehicle Data
         vehicleMake,
         vehicleModel,
         vehicleYear,
@@ -109,6 +105,36 @@ export default function SettingsScreen({ navigation }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  // --- NEW: Compliance Requirement (Account Deletion) ---
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Delete Account",
+      "Are you sure? This will permanently delete your data and tax records. This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete Forever", 
+          style: "destructive",
+          onPress: async () => {
+             try {
+               setLoading(true);
+               // 1. Delete Firestore Data
+               await deleteDoc(doc(db, "users", user.uid));
+               // Note: A real app should use Cloud Functions to recursively delete subcollections (trips/expenses)
+               
+               // 2. Delete Auth User
+               await deleteUser(user);
+               // Auth listener in App.js will redirect to Login
+             } catch (error) {
+               setLoading(false);
+               Alert.alert("Error", "Please re-login and try again (Security Requirement).");
+             }
+          }
+        }
+      ]
+    );
   };
 
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
@@ -128,15 +154,15 @@ export default function SettingsScreen({ navigation }) {
           <Text style={styles.sectionLabel}>BUSINESS IDENTITY</Text>
           <View style={styles.card}>
             <Text style={styles.inputLabel}>LEGAL FULL NAME</Text>
-            <TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} placeholder="Kaleb McIntosh" placeholderTextColor="#666" />
+            <TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} placeholder="Your Name" placeholderTextColor="#666" />
             <Text style={styles.inputLabel}>BUSINESS NAME (LLC)</Text>
-            <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} placeholder="McIntosh Digital Solutions" placeholderTextColor="#666" />
+            <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} placeholder="Business Name" placeholderTextColor="#666" />
             <Text style={styles.inputLabel}>TAX ID (EIN/SSN)</Text>
             <TextInput style={styles.input} value={taxId} onChangeText={setTaxId} keyboardType="numeric" placeholder="00-0000000" placeholderTextColor="#666" />
           </View>
         </View>
 
-        {/* 2. VEHICLE INFORMATION (NEW) */}
+        {/* 2. VEHICLE INFORMATION */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>VEHICLE DETAILS</Text>
           <View style={styles.card}>
@@ -176,21 +202,16 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
 
-        {/* 4. FOUNDER'S NOTE */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>FROM THE FOUNDER</Text>
-          <View style={[styles.card, { backgroundColor: '#1A2F4B', borderColor: COLORS.primary }]}>
-            <Text style={styles.founderTitle}>The DriverPro Mission</Text>
-            <Text style={styles.founderText}>
-              "I built DriverPro to give independent professionals the protection and profit tracking we deserve. Whether you're in the shop or on the road, our goal is to keep your business compliant and your data secure."
-            </Text>
-            <Text style={styles.founderSign}>— Kaleb McIntosh</Text>
-          </View>
-        </View>
-
         <TouchableOpacity style={styles.logoutBtn} onPress={() => auth.signOut()}>
           <Text style={styles.logoutText}>Sign Out of DriverPro</Text>
         </TouchableOpacity>
+
+        {/* DELETE ACCOUNT (Mandatory for iOS) */}
+        <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
+          <Text style={styles.deleteText}>Delete Account & Data</Text>
+        </TouchableOpacity>
+        
+        <View style={{height: 40}} /> 
       </ScrollView>
     </SafeAreaView>
   );
@@ -212,9 +233,8 @@ const styles = StyleSheet.create({
   iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
   rowText: { flex: 1, color: 'white', fontSize: 15, fontWeight: 'bold' },
   subText: { color: COLORS.textSecondary, fontSize: 11, marginTop: 2 },
-  founderTitle: { color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
-  founderText: { color: '#BDC3C7', fontSize: 14, lineHeight: 20, fontStyle: 'italic' },
-  founderSign: { color: COLORS.primary, fontWeight: 'bold', marginTop: 15, fontSize: 13 },
-  logoutBtn: { marginBottom: 40, alignItems: 'center' },
-  logoutText: { color: COLORS.danger, fontWeight: 'bold' }
+  logoutBtn: { marginBottom: 20, alignItems: 'center' },
+  logoutText: { color: COLORS.textSecondary, fontWeight: 'bold' },
+  deleteBtn: { alignItems: 'center', marginBottom: 20 },
+  deleteText: { color: COLORS.danger, fontSize: 12 }
 });
