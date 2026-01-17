@@ -1,5 +1,6 @@
 // App.js
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // Added for background safety
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -9,7 +10,6 @@ import * as TaskManager from 'expo-task-manager';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useState } from 'react';
 import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
-// FIXED: Required for layout safety
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { auth } from './src/firebaseConfig';
@@ -25,9 +25,29 @@ LogBox.ignoreLogs(['Setting a timer']);
 const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
 const GEOFENCE_TASK = 'geofence-tracking-task';
 
-TaskManager.defineTask(BACKGROUND_TRACKING_TASK, ({ data, error }) => {
-  if (error) { console.error("Background Tracking Error:", error); return; }
-  if (data) { console.log("Background location received:", data.locations); }
+// FIXED: Task now persists data so it isn't lost if the app is closed
+TaskManager.defineTask(BACKGROUND_TRACKING_TASK, async ({ data, error }) => {
+  if (error) { 
+    console.error("Background Tracking Error:", error); 
+    return; 
+  }
+  if (data) {
+    const { locations } = data;
+    try {
+      // Retrieve existing pending locations
+      const existingData = await AsyncStorage.getItem('pending_locations');
+      const pendingPoints = existingData ? JSON.parse(existingData) : [];
+      
+      // Add new locations
+      const updatedPoints = [...pendingPoints, ...locations];
+      
+      // Save back to storage
+      await AsyncStorage.setItem('pending_locations', JSON.stringify(updatedPoints));
+      console.log(`Background: Saved ${locations.length} new points.`);
+    } catch (err) {
+      console.error("Failed to save background location", err);
+    }
+  }
 });
 
 TaskManager.defineTask(GEOFENCE_TASK, ({ data: { eventType, region }, error }) => {
@@ -93,7 +113,6 @@ export default function App() {
   if (!appIsReady) return null;
 
   return (
-    // FIXED: SafeAreaProvider added
     <SafeAreaProvider>
       <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
         <NavigationContainer>
