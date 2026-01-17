@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy'; // Fixed for SDK 54
 import * as Sharing from 'expo-sharing';
-import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, setDoc, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, setDoc, where } from 'firebase/firestore'; // Added deleteDoc
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,23 +13,24 @@ export default function WalletScreen() {
   const [trips, setTrips] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [totalSavings, setTotalSavings] = useState('0.00');
-  const [totalExpenses, setTotalExpenses] = useState('0.00');
+  const [totalSavings, setTotalSavings] = useState(0);
+  const [totalExpenses, setTotalExpenses] = useState(0);
   const [profile, setProfile] = useState({ businessName: '', taxId: '', displayName: '', lastExport: null });
 
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [newExpense, setNewExpense] = useState({ type: 'Gas', amount: '', vendor: '' });
-  const [isExporting, setIsExporting] = useState(false);
 
   const user = auth.currentUser;
 
   useEffect(() => {
     if (!user) return;
 
+    // 1. Fetch Profile
     getDoc(doc(db, "users", user.uid)).then(docSnap => {
       if (docSnap.exists()) setProfile(docSnap.data());
     });
 
+    // 2. Real-time Trip Logs
     const qTrips = query(collection(db, "trips"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
       let milesAcc = 0;
@@ -45,6 +46,7 @@ export default function WalletScreen() {
       setTotalSavings(savingsAcc.toFixed(2));
     });
 
+    // 3. Real-time Expense Logs
     const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubExpenses = onSnapshot(qExpenses, (snapshot) => {
       let expAcc = 0;
@@ -62,87 +64,7 @@ export default function WalletScreen() {
     return () => { unsubTrips(); unsubExpenses(); };
   }, [user]);
 
-  // --- HELPER: CSV Escape ---
-  const escapeCsv = (text) => {
-    if (!text) return "";
-    const stringText = String(text);
-    if (stringText.includes(',') || stringText.includes('"') || stringText.includes('\n')) {
-      return `"${stringText.replace(/"/g, '""')}"`;
-    }
-    return stringText;
-  };
-
-  const handleExport = async () => {
-    if (trips.length === 0 && expenses.length === 0) {
-      Alert.alert("No Data", "Track some trips or add expenses first!");
-      return;
-    }
-    setIsExporting(true);
-
-    try {
-      const exportDate = new Date().toLocaleString();
-      let csv = `DRIVER PRO TAX REPORT\nGenerated: ${exportDate}\n`;
-      csv += `Business: ${escapeCsv(profile.businessName)}\nTax ID: ${escapeCsv(profile.taxId)}\n\n`;
-      
-      csv += `--- TRIPS ---\nDate,Miles,Savings,ID\n`;
-      trips.forEach(t => {
-        const d = t.timestamp?.toDate().toLocaleDateString() || "N/A";
-        csv += `${d},${t.miles},${t.savings},${t.id}\n`;
-      });
-
-      csv += `\n--- EXPENSES ---\nDate,Type,Vendor,Amount,ID\n`;
-      expenses.forEach(e => {
-        const d = e.timestamp?.toDate().toLocaleDateString() || "N/A";
-        csv += `${d},${escapeCsv(e.type)},${escapeCsv(e.vendor)},${e.amount},${e.id}\n`;
-      });
-
-      // Use cacheDirectory for temporary files (cleaner for OS)
-      const fileUri = `${FileSystem.cacheDirectory}DriverPro_Tax_Report.csv`;
-      
-      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
-      
-      // Check if sharing is available
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(fileUri, { 
-          mimeType: 'text/csv', 
-          dialogTitle: 'Export Tax Report',
-          UTI: 'public.comma-separated-values-text' 
-        });
-        
-        const timestamp = new Date().toISOString();
-        await setDoc(doc(db, "users", user.uid), { lastExport: timestamp }, { merge: true });
-        setProfile(prev => ({ ...prev, lastExport: timestamp }));
-      } else {
-        Alert.alert("Error", "Sharing is not available on this device.");
-      }
-    } catch (error) {
-      console.error(error);
-      Alert.alert("Export Failed", "Could not generate the CSV file.");
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const addExpense = async () => {
-    if (!newExpense.amount || !newExpense.vendor) return Alert.alert("Missing Info", "Enter amount and vendor.");
-    
-    try {
-      await addDoc(collection(db, "expenses"), {
-        userId: user.uid,
-        type: newExpense.type,
-        amount: parseFloat(newExpense.amount),
-        vendor: newExpense.vendor,
-        timestamp: new Date()
-      });
-      setShowExpenseForm(false);
-      setNewExpense({ type: 'Gas', amount: '', vendor: '' });
-    } catch (e) {
-      Alert.alert("Error", "Could not save expense.");
-    }
-  };
-
-  // --- NEW: Delete Logic ---
+  // --- DELETE FUNCTIONALITY (RESTORED) ---
   const confirmDelete = (id, collectionName) => {
     Alert.alert("Delete Item?", "This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
@@ -160,15 +82,77 @@ export default function WalletScreen() {
     ]);
   };
 
+  // --- EXPORT FUNCTION (FIXED) ---
+  const handleExport = async () => {
+    if (trips.length === 0 && expenses.length === 0) {
+      Alert.alert("No Data", "Track some trips or add expenses first!");
+      return;
+    }
+
+    const exportDate = new Date().toLocaleString();
+    let csv = `DRIVER PRO TAX REPORT\nGenerated: ${exportDate}\n`;
+    csv += `Business: ${profile.businessName}\nTax ID: ${profile.taxId}\n\n`;
+    
+    csv += `--- TRIPS ---\nDate,Miles,Savings,ID\n`;
+    trips.forEach(t => {
+      const d = t.timestamp?.toDate().toLocaleDateString() || "N/A";
+      csv += `${d},${t.miles},${t.savings},${t.id}\n`;
+    });
+
+    csv += `\n--- EXPENSES ---\nDate,Type,Vendor,Amount,ID\n`;
+    expenses.forEach(e => {
+      const d = e.timestamp?.toDate().toLocaleDateString() || "N/A";
+      csv += `${d},${e.type},${e.vendor},${e.amount},${e.id}\n`;
+    });
+
+    const fileUri = `${FileSystem.documentDirectory}Tax_Report.csv`;
+    
+    try {
+      // FIXED: Uses string 'utf8' instead of undefined constant
+      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
+      
+      await Sharing.shareAsync(fileUri, { 
+        mimeType: 'text/csv', 
+        dialogTitle: 'Export Tax Report',
+        UTI: 'public.comma-separated-values-text' 
+      });
+      
+      const timestamp = new Date().toISOString();
+      await setDoc(doc(db, "users", user.uid), { lastExport: timestamp }, { merge: true });
+      setProfile(prev => ({ ...prev, lastExport: timestamp }));
+    } catch (error) {
+      Alert.alert("Export Failed", error.message);
+    }
+  };
+
+  const addExpense = async () => {
+    if (!newExpense.amount || !newExpense.vendor) return Alert.alert("Missing Info", "Enter amount and vendor.");
+    
+    try {
+      await addDoc(collection(db, "expenses"), {
+        userId: user.uid,
+        type: newExpense.type,
+        amount: parseFloat(newExpense.amount),
+        vendor: newExpense.vendor,
+        timestamp: new Date()
+      });
+      setShowExpenseForm(false);
+      setNewExpense({ type: 'Gas', amount: '', vendor: '' });
+      Alert.alert("Saved", "Expense logged.");
+    } catch (e) {
+      Alert.alert("Error", "Could not save expense.");
+    }
+  };
+
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Tax Wallet</Text>
-        <TouchableOpacity style={styles.exportBtn} onPress={handleExport} disabled={isExporting}>
-          {isExporting ? <ActivityIndicator size="small" color={COLORS.primary} /> : <Ionicons name="share-outline" size={20} color={COLORS.primary} />}
-          <Text style={styles.exportText}>Export</Text>
+        <TouchableOpacity style={styles.exportBtn} onPress={handleExport}>
+          <Ionicons name="share-outline" size={20} color={COLORS.primary} />
+          <Text style={styles.exportText}>Export Report</Text>
         </TouchableOpacity>
       </View>
 
@@ -198,6 +182,7 @@ export default function WalletScreen() {
         {activeTab === 'trips' ? (
           trips.length === 0 ? <Text style={styles.emptyText}>No trips recorded yet.</Text> :
           trips.map(t => (
+            // RESTORED: TouchableOpacity with onLongPress for deletion
             <TouchableOpacity key={t.id} style={styles.itemRow} onLongPress={() => confirmDelete(t.id, "trips")}>
               <View style={[styles.iconBox, { backgroundColor: 'rgba(45, 108, 223, 0.1)' }]}>
                 <Ionicons name="car" size={20} color={COLORS.primary} />
@@ -237,6 +222,7 @@ export default function WalletScreen() {
             )}
 
             {expenses.map(e => (
+              // RESTORED: TouchableOpacity with onLongPress for deletion
               <TouchableOpacity key={e.id} style={styles.itemRow} onLongPress={() => confirmDelete(e.id, "expenses")}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(231, 76, 60, 0.1)' }]}>
                   <Ionicons name="receipt" size={20} color={COLORS.danger} />

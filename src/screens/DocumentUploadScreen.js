@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system'; // ADDED: For local storage
+// FIXED: Use legacy import to solve SDK 54 deprecation error
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
 import { doc, setDoc } from 'firebase/firestore';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth, db } from '../firebaseConfig'; // Removed 'storage'
+import { auth, db } from '../firebaseConfig';
 import { usePermissions } from '../hooks/usePermissions';
 import COLORS from '../styles/colors';
 
@@ -25,7 +26,8 @@ export default function DocumentUploadScreen({ navigation }) {
 
     try {
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaType.Images,
+        // FIXED: Use simple string 'images' to prevent "undefined" crash
+        mediaTypes: 'images', 
         allowsEditing: true,
         quality: 0.7, 
       });
@@ -56,13 +58,14 @@ export default function DocumentUploadScreen({ navigation }) {
     }
   };
 
-  // --- NEW: Local Storage Logic ---
+  // --- LOCAL STORAGE LOGIC ---
   const saveToDevice = async (uri, fileName) => {
     try {
       // Define a permanent location in the app's document folder
       const newPath = FileSystem.documentDirectory + fileName;
       
       // Copy the file from the temporary cache to permanent storage
+      // Uses the legacy module to avoid deprecation warnings/errors
       await FileSystem.copyAsync({
         from: uri,
         to: newPath
@@ -71,7 +74,7 @@ export default function DocumentUploadScreen({ navigation }) {
       return newPath;
     } catch (e) {
       console.error("Local Save Error:", e);
-      throw new Error("Could not save file to device.");
+      throw new Error(`Could not save file: ${e.message}`);
     }
   };
 
@@ -104,12 +107,11 @@ export default function DocumentUploadScreen({ navigation }) {
       );
 
       // 3. Save "Reference" to Firestore
-      // We store the local path string so the app knows where to find it later
       await setDoc(doc(db, "users", user.uid), {
         documents: {
           insuranceLocalUri: insPath,
           registrationLocalUri: regPath,
-          storageType: 'local', // Flag to know this isn't a web URL
+          storageType: 'local', 
           uploadedAt: new Date().toISOString()
         },
         documentStatus: 'Verified'
