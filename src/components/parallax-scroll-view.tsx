@@ -1,4 +1,3 @@
-// src/components/parallax-scroll-view.tsx
 import type { PropsWithChildren, ReactElement } from 'react';
 import { StyleSheet, useColorScheme } from 'react-native';
 import Animated, {
@@ -10,7 +9,8 @@ import Animated, {
 
 // FIXED: Sibling import for ThemedView
 import { ThemedView } from './themed-view';
-// FIXED: Relative import for the custom hook
+// FIXED: ADD THIS MISSING LINE or the app crashes
+import { useThemeColor } from '../hooks/useThemeColor';
 
 const HEADER_HEIGHT = 250;
 
@@ -24,6 +24,8 @@ export default function ParallaxScrollView({
   headerImage,
   headerBackgroundColor,
 }: Props) {
+  // Now this line will work
+  const backgroundColor = useThemeColor({}, 'background');
   const colorScheme = useColorScheme() ?? 'light';
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollOffset = useScrollOffset(scrollRef);
@@ -53,7 +55,7 @@ export default function ParallaxScrollView({
     <Animated.ScrollView
       ref={scrollRef}
       scrollEventThrottle={16}
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor }}
     >
       <Animated.View
         style={[
