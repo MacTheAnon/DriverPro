@@ -28,11 +28,17 @@
             ]
           }
         ],
-        "NSPhotoLibraryUsageDescription": "DriverPro needs access to your photos to let you upload your insurance and registration documents.",
+        "NSCameraUsageDescription": "DriverPro needs camera access to scan your insurance and registration documents for verification.",
+        "NSPhotoLibraryUsageDescription": "DriverPro needs access to your photos to let you upload existing PDF or image documents.",
+        "NSFaceIDUsageDescription": "DriverPro uses Face ID to securely log you in without a password.",
         "NSLocationWhenInUseUsageDescription": "DriverPro uses your location to calculate mileage and tax deductions in real-time.",
-        "NSLocationAlwaysUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base.",
-        "UIBackgroundModes": ["location", "fetch"],
+        "NSLocationAlwaysUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base, even when the app is closed.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "DriverPro requires background location to automatically track your business trips and geofence your home base, even when the app is closed.",
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -52,7 +58,9 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -63,7 +71,12 @@
       "expo-image-picker",
       "expo-document-picker",
       "expo-local-authentication",
-      "expo-location",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow DriverPro to use your location."
+        }
+      ],
       "expo-font",
       "@react-native-google-signin/google-signin",
       [
