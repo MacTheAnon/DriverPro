@@ -78,7 +78,7 @@ export default function App() {
       } catch (e) { console.warn(e); } finally { setAppIsReady(true); }
     }
     prepare();
-    return () => { if (unsubscribeAuth) unsubscribeAuth(); };
+    return () => { };
   }, []);
 
   const onLayoutRootView = useCallback(async () => {

@@ -8,7 +8,9 @@ import Animated, {
   useScrollOffset,
 } from 'react-native-reanimated';
 
-import { ThemedView } from './themed-view'; // FIXED: Same folder import
+// FIXED: Sibling import for ThemedView
+import { ThemedView } from './themed-view';
+// FIXED: Relative import for the custom hook
 
 const HEADER_HEIGHT = 250;
 
