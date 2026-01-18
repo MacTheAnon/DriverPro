@@ -1,6 +1,6 @@
 const COLORS = {
   primary: '#2D6CDF',    // Your Royal Blue
-  background: '#121212', // Dark Mode Black
+  background: '#000000', // Dark Mode Black
   card: '#1E1E1E',       // Dark Grey Card
   text: '#FFFFFF',       // White
   textSecondary: '#AAAAAA', // Grey

@@ -1,9 +1,11 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from 'firebase/auth';
+// FIXED: Import special persistence tools
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
+import { getReactNativePersistence, initializeAuth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
-// ADDED: Import Storage
 import { getStorage } from "firebase/storage";
 
+// Your existing config (Keep your keys exactly as they were!)
 const firebaseConfig = {
   apiKey: "AIzaSyDPKxSCMQvzbonJEduiexEvo7WgXlQjzio",
   authDomain: "driverpro-web.firebaseapp.com",
@@ -14,10 +16,16 @@ const firebaseConfig = {
   measurementId: "G-9KCB85D8L2"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+
+// --- FIXED AUTH INITIALIZATION ---
+// This tells Firebase: "Use AsyncStorage to remember the user forever"
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+});
+
 const db = getFirestore(app);
-// ADDED: Initialize Storage
 const storage = getStorage(app);
 
 export { auth, db, storage };

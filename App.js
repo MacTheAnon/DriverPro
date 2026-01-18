@@ -1,6 +1,5 @@
-// App.js
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // Added for background safety
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -25,7 +24,7 @@ LogBox.ignoreLogs(['Setting a timer']);
 const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
 const GEOFENCE_TASK = 'geofence-tracking-task';
 
-// FIXED: Task now persists data so it isn't lost if the app is closed
+// --- BACKGROUND TASKS ---
 TaskManager.defineTask(BACKGROUND_TRACKING_TASK, async ({ data, error }) => {
   if (error) { 
     console.error("Background Tracking Error:", error); 
@@ -34,14 +33,9 @@ TaskManager.defineTask(BACKGROUND_TRACKING_TASK, async ({ data, error }) => {
   if (data) {
     const { locations } = data;
     try {
-      // Retrieve existing pending locations
       const existingData = await AsyncStorage.getItem('pending_locations');
       const pendingPoints = existingData ? JSON.parse(existingData) : [];
-      
-      // Add new locations
       const updatedPoints = [...pendingPoints, ...locations];
-      
-      // Save back to storage
       await AsyncStorage.setItem('pending_locations', JSON.stringify(updatedPoints));
       console.log(`Background: Saved ${locations.length} new points.`);
     } catch (err) {
@@ -89,18 +83,21 @@ export default function App() {
   const [fadeAnim] = useState(new Animated.Value(1));
 
   useEffect(() => {
+    // 1. Listen for Auth Changes (and Auto-Login)
     const unsubscribeAuth = onAuthStateChanged(auth, (authenticatedUser) => {
       setUser(authenticatedUser);
     });
 
+    // 2. Load Fonts & Assets
     async function prepare() {
       try {
         await Font.loadAsync({ ...Ionicons.font });
-        await new Promise(resolve => setTimeout(resolve, 2500));
+        // Artificial delay for splash screen (optional)
+        await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (e) { console.warn(e); } finally { setAppIsReady(true); }
     }
     prepare();
-    return () => { };
+    return () => unsubscribeAuth();
   }, []);
 
   const onLayoutRootView = useCallback(async () => {
@@ -118,16 +115,21 @@ export default function App() {
         <NavigationContainer>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             {user ? (
+              // --- LOGGED IN STACK ---
               <>
-                <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
+                {/* FIXED: Dashboard is now FIRST, so it opens by default */}
                 <Stack.Screen name="Dashboard" component={MainTabNavigator} />
+                <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
                 <Stack.Screen name="Settings" component={SettingsScreen} />
               </>
             ) : (
+              // --- LOGGED OUT STACK ---
               <Stack.Screen name="Login" component={LoginScreen} />
             )}
           </Stack.Navigator>
         </NavigationContainer>
+        
+        {/* Custom Splash Animation Overlay */}
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}>
           <Image source={require('./assets/logo.png')} style={{ width: 180, height: 180, resizeMode: 'contain' }} />
         </Animated.View>
