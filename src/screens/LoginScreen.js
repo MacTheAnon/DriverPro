@@ -82,8 +82,8 @@ export default function LoginScreen({ navigation }) {
   const handleGoogleLogin = async () => {
     try {
       await GoogleSignin.hasPlayServices();
-      const response = await GoogleSignin.signIn();
-      const idToken = response.data?.idToken;
+      // The idToken is available directly on the response object
+      const { idToken } = await GoogleSignin.signIn();
       
       if (!idToken) throw new Error("Google ID Token not found.");
 

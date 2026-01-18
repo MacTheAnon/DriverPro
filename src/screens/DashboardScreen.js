@@ -13,6 +13,7 @@ const BACKGROUND_TRACKING_TASK = 'background-tracking-task'; // Must match App.j
 export default function DashboardScreen({ navigation }) {
   const [stats, setStats] = useState({ milesToday: '0.0', taxSavings: '0.00', totalDeduction: '0.00' });
   const [isTrackingActive, setIsTrackingActive] = useState(false); // ADDED: Real status
+  const [totalExpenses, setTotalExpenses] = useState(0); // ADDED: To hold expense total
   const [monthlyGoal, setMonthlyGoal] = useState(500); 
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [tempGoal, setTempGoal] = useState('500');
@@ -66,11 +67,23 @@ export default function DashboardScreen({ navigation }) {
       setStats({ 
         milesToday: todayM.toFixed(1), 
         taxSavings: totalS.toFixed(2), // Total Lifetime Deduction
-        totalDeduction: totalS.toFixed(2)
+        // UPDATED: Combine savings and expenses for a true total deduction
+        totalDeduction: (totalS + totalExpenses).toFixed(2)
       });
     });
 
-    // 3. Real-time Profile & Goal Data
+    // 3. Real-time Expense Data (for accurate total deduction)
+    const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid));
+    const unsubExpenses = onSnapshot(qExpenses, (snapshot) => {
+      let expAcc = 0;
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        expAcc += parseFloat(data.amount || 0);
+      });
+      setTotalExpenses(expAcc);
+    });
+
+    // 4. Real-time Profile & Goal Data
     const unsubSettings = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -85,8 +98,8 @@ export default function DashboardScreen({ navigation }) {
 
     checkTrackingStatus();
 
-    return () => { unsubTrips(); unsubSettings(); };
-  }, [user]);
+    return () => { unsubTrips(); unsubSettings(); unsubExpenses(); };
+  }, [user, totalExpenses]); // Rerun when expenses change to update total
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
