@@ -144,13 +144,17 @@ export default function TrackScreen() {
     try {
       // 1. Check for any background points stored by App.js
       const bgData = await AsyncStorage.getItem('pending_locations');
+      
+      // --- BACKGROUND MERGE LOGIC ---
       let finalRoute = [...routeCoordinates];
       
       if (bgData) {
         const bgPoints = JSON.parse(bgData);
-        // In a full production app, you would merge and deduplicate these points
-        // For now, we will just log that we recovered them to ensure no data loss
         console.log(`Recovered ${bgPoints.length} background points.`);
+        
+        // Merge the background points into the final route
+        // This ensures points tracked while the app was closed are saved
+        finalRoute = [...finalRoute, ...bgPoints]; 
       }
 
       console.log("Saving trip to Firebase...");
@@ -161,8 +165,11 @@ export default function TrackScreen() {
         savings: earnings.toFixed(2),
         timestamp: serverTimestamp(),
         createdAt: new Date().toISOString(),
-        route: finalRoute 
+        route: finalRoute // Saves the merged route
       });
+
+      // Clear the pending locations so they don't appear in the next trip
+      await AsyncStorage.removeItem('pending_locations');
 
       Alert.alert('Trip Saved', `Saved to cloud! ID: ${docRef.id}`);
       
