@@ -80,12 +80,14 @@ function MainTabNavigator() {
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
   const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false); // New flag to know when auth check is done
   const [fadeAnim] = useState(new Animated.Value(1));
 
   useEffect(() => {
     // 1. Listen for Auth Changes (and Auto-Login)
     const unsubscribeAuth = onAuthStateChanged(auth, (authenticatedUser) => {
       setUser(authenticatedUser);
+      setAuthChecked(true); // Auth check is complete
     });
 
     // 2. Load Fonts & Assets
@@ -101,13 +103,13 @@ export default function App() {
   }, []);
 
   const onLayoutRootView = useCallback(async () => {
-    if (appIsReady) {
+    if (appIsReady && authChecked) { // Only hide splash screen when BOTH app and auth are ready
       await SplashScreen.hideAsync();
       Animated.timing(fadeAnim, { toValue: 0, duration: 1000, useNativeDriver: true }).start();
     }
-  }, [appIsReady, fadeAnim]);
+  }, [appIsReady, authChecked, fadeAnim]);
 
-  if (!appIsReady) return null;
+  if (!appIsReady || !authChecked) return null; // Wait for everything
 
   return (
     <SafeAreaProvider>

@@ -17,14 +17,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mcintosh.driverpro",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "googleServicesFile": "./GoogleService-Info.plist",
       "usesAppleSignIn": true,
       "infoPlist": {
         "CFBundleURLTypes": [
           {
+            // CORRECTED: This scheme must be the REVERSED_CLIENT_ID from your GoogleService-Info.plist
             "CFBundleURLSchemes": [
-              "com.googleusercontent.apps.1083485928900-97jgmu5vhene54e94qob4v309l6t0q0f"
+              "com.googleusercontent.apps.1083485928900-lg5i5ehmtcls7e5fo6s23qsc907ik24b"
             ]
           }
         ],

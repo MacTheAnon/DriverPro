@@ -16,8 +16,7 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "6757964430",
-        "appleId": "mac1379530@icloud.com"
+        "ascAppId": "6757964430"
       }
     }
   }

@@ -1,11 +1,9 @@
-import { initializeApp } from "firebase/app";
-// FIXED: Import special persistence tools
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
+import { initializeApp } from "firebase/app";
 import { getReactNativePersistence, initializeAuth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+// REMOVED: import { getStorage } ...
 
-// Your existing config (Keep your keys exactly as they were!)
 const firebaseConfig = {
   apiKey: "AIzaSyDPKxSCMQvzbonJEduiexEvo7WgXlQjzio",
   authDomain: "driverpro-web.firebaseapp.com",
@@ -16,16 +14,15 @@ const firebaseConfig = {
   measurementId: "G-9KCB85D8L2"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// --- FIXED AUTH INITIALIZATION ---
-// This tells Firebase: "Use AsyncStorage to remember the user forever"
+// Saves login to the phone's local chip (Free)
 const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(ReactNativeAsyncStorage)
 });
 
 const db = getFirestore(app);
-const storage = getStorage(app);
+// REMOVED: const storage = getStorage(app);
 
-export { auth, db, storage };
+// Only export auth and db
+export { auth, db };
