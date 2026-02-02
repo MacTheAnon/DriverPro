@@ -9,6 +9,7 @@ import * as TaskManager from 'expo-task-manager';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import ChatScreen from './src/screens/ChatScreen';
 
 // Context & Auth
 import { UserContext, UserProvider } from './src/context/UserContext';
@@ -92,6 +93,7 @@ const AppNavigation = () => {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
           <>
+            <Stack.Screen name="Chat" component={ChatScreen} /> {/* <--- NEW ROUTE */}
             <Stack.Screen name="Dashboard" component={MainTabNavigator} />
             <Stack.Screen name="Track" component={TrackScreen} />
             <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
