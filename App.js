@@ -9,15 +9,15 @@ import * as TaskManager from 'expo-task-manager';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import ChatScreen from './src/screens/ChatScreen';
 
 // Context & Auth
 import { UserContext, UserProvider } from './src/context/UserContext';
 
 // Screens
+import ChatScreen from './src/screens/ChatScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import DocumentUploadScreen from './src/screens/DocumentUploadScreen';
-import DocumentsScreen from './src/screens/DocumentsScreen'; // <--- NEW IMPORT
+import DocumentsScreen from './src/screens/DocumentsScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import PremiumScreen from './src/screens/PremiumScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
@@ -92,15 +92,14 @@ const AppNavigation = () => {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
-          <>
-            <Stack.Screen name="Chat" component={ChatScreen} /> {/* <--- NEW ROUTE */}
+          <Stack.Group>
             <Stack.Screen name="Dashboard" component={MainTabNavigator} />
-            <Stack.Screen name="Track" component={TrackScreen} />
+            <Stack.Screen name="Chat" component={ChatScreen} />
             <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
-            <Stack.Screen name="Documents" component={DocumentsScreen} /> {/* <--- NEW ROUTE */}
+            <Stack.Screen name="Documents" component={DocumentsScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Premium" component={PremiumScreen} options={{ presentation: 'modal', headerShown: false }} />
-          </>
+          </Stack.Group>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />
         )}
