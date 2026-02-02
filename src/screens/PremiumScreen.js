@@ -6,12 +6,15 @@ import COLORS from '../styles/colors';
 import SubscriptionManager from '../utils/SubscriptionManager';
 
 const PremiumScreen = ({ navigation }) => {
+  // 1. Get 'isPremium' and 'refreshPremiumStatus'
   const { isPremium, refreshPremiumStatus } = useContext(UserContext);
+  
   const [packages, setPackages] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Only load offers if NOT premium
     if (!isPremium) {
       const loadOffer = async () => {
         setLoading(true);
@@ -40,7 +43,7 @@ const PremiumScreen = ({ navigation }) => {
         "Welcome Aboard! 🚀", 
         "Your Pro features are now active.",
         [
-          { text: "Let's Go", onPress: () => navigation.navigate('Home') }
+          { text: "Let's Go", onPress: () => navigation.navigate('Dashboard')}
         ]
       );
     }
@@ -51,7 +54,7 @@ const PremiumScreen = ({ navigation }) => {
     if (success) {
       await refreshPremiumStatus();
       Alert.alert("Restored", "Your Pro status is back!");
-      navigation.navigate('Home');
+      navigation.navigate('Dashboard');
     } else {
       Alert.alert("Notice", "No active subscription found.");
     }
@@ -59,24 +62,34 @@ const PremiumScreen = ({ navigation }) => {
 
   const openLink = (url) => Linking.openURL(url);
 
-  // ALREADY PREMIUM VIEW
+  // --- VIEW: ALREADY PREMIUM ---
   if (isPremium) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <Ionicons name="checkmark-circle" size={100} color={COLORS.success} />
         <Text style={styles.title}>You are a Pro!</Text>
         <Text style={styles.subtitle}>All advanced features are unlocked.</Text>
+        
+        <View style={styles.activeCard}>
+          <Text style={styles.activeTitle}>DriverPro+ Active</Text>
+          <Text style={styles.activeSub}>Thank you for supporting the app.</Text>
+        </View>
+
         <TouchableOpacity 
           style={[styles.subscribeButton, { backgroundColor: '#333', marginTop: 30, width: '80%' }]} 
-          onPress={() => navigation.navigate('Home')}
+          onPress={() => navigation.navigate('Dashboard')}
         >
           <Text style={styles.subscribeText}>Go to Dashboard</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => Linking.openURL('https://apps.apple.com/account/subscriptions')} style={{ marginTop: 20 }}>
+          <Text style={styles.footerLink}>Manage Subscription</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // SALES PAGE VIEW
+  // --- VIEW: SALES PAGE ---
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
@@ -166,6 +179,11 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 30, marginBottom: 20 },
   footerLink: { color: '#999', fontSize: 12 },
   separator: { width: 1, height: 12, backgroundColor: '#ccc', marginHorizontal: 15 },
+  
+  // Active State Styles
+  activeCard: { backgroundColor: '#e8f5e9', padding: 20, borderRadius: 15, width: '100%', alignItems: 'center', marginTop: 30, borderWidth: 1, borderColor: '#2e7d32' },
+  activeTitle: { color: '#2e7d32', fontSize: 20, fontWeight: 'bold' },
+  activeSub: { color: '#555', marginTop: 5 }
 });
 
 export default PremiumScreen;
