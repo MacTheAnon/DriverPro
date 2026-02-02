@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system/legacy'; // Legacy import for SDK 52+
-import * as ImagePicker from 'expo-image-picker'; // Camera Logic
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { useContext, useEffect, useState } from 'react';
@@ -15,7 +15,7 @@ import { generateTaxReport } from '../utils/PDFGenerator';
 const screenWidth = Dimensions.get("window").width;
 
 export default function WalletScreen({ navigation }) {
-  const [activeTab, setActiveTab] = useState('expenses'); // Start on Expenses
+  const [activeTab, setActiveTab] = useState('expenses'); 
   const [trips, setTrips] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,7 +25,7 @@ export default function WalletScreen({ navigation }) {
   // Expense Form State
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [newExpense, setNewExpense] = useState({ type: 'Gas', amount: '', vendor: '', receiptUri: null });
-  const [viewReceipt, setViewReceipt] = useState(null); // Holds the image URI to view in Modal
+  const [viewReceipt, setViewReceipt] = useState(null); 
 
   const { isPremium } = useContext(UserContext); 
   const user = auth.currentUser;
@@ -33,23 +33,21 @@ export default function WalletScreen({ navigation }) {
   useEffect(() => {
     if (!user) return;
 
-    // 1. Listen for Trips
+    // Listen for Trips
     const qTrips = query(collection(db, "trips"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
-      let milesAcc = 0;
       let savingsAcc = 0;
       const list = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
         list.push({ id: doc.id, ...data });
-        milesAcc += parseFloat(data.miles || 0);
         savingsAcc += parseFloat(data.savings || 0);
       });
       setTrips(list);
       setTotalSavings(savingsAcc.toFixed(2));
     });
 
-    // 2. Listen for Expenses
+    // Listen for Expenses
     const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubExpenses = onSnapshot(qExpenses, (snapshot) => {
       let expAcc = 0;
@@ -67,7 +65,6 @@ export default function WalletScreen({ navigation }) {
     return () => { unsubTrips(); unsubExpenses(); };
   }, [user]);
 
-  // --- RECEIPT SCANNING LOGIC ---
   const handleScanReceipt = async () => {
     Alert.alert("Upload Receipt", "Choose an option", [
       { text: "Camera", onPress: () => pickImage(true) },
@@ -89,11 +86,9 @@ export default function WalletScreen({ navigation }) {
     }
 
     if (!result.canceled) {
-      // Save permanently to document storage so it persists
       const uri = result.assets[0].uri;
       const fileName = `receipt_${Date.now()}.jpg`;
       const newPath = FileSystem.documentDirectory + fileName;
-      
       try {
         await FileSystem.copyAsync({ from: uri, to: newPath });
         setNewExpense({ ...newExpense, receiptUri: newPath });
@@ -111,7 +106,7 @@ export default function WalletScreen({ navigation }) {
         type: newExpense.type,
         amount: parseFloat(newExpense.amount),
         vendor: newExpense.vendor,
-        receiptUri: newExpense.receiptUri || null, // Save local image path
+        receiptUri: newExpense.receiptUri || null,
         timestamp: new Date()
       });
       setShowExpenseForm(false);
@@ -126,7 +121,6 @@ export default function WalletScreen({ navigation }) {
     ]);
   };
 
-  // --- EXPORT LOGIC ---
   const handleExportPDF = () => {
     if (!isPremium) return navigation.navigate('Premium');
     if (trips.length === 0) return Alert.alert("No Data", "Drive some miles first!");
@@ -148,20 +142,47 @@ export default function WalletScreen({ navigation }) {
     } catch (error) { Alert.alert("Export Failed", error.message); }
   };
 
-  // --- CHART DATA ---
+  // --- CHART DATA (FIXED FOR CURRENCY DISPLAY) ---
+  const gasTotal = expenses.filter(e => e.type === 'Gas').reduce((sum, e) => sum + e.amount, 0);
+  const repairTotal = expenses.filter(e => e.type === 'Repair').reduce((sum, e) => sum + e.amount, 0);
+  const mealTotal = expenses.filter(e => e.type === 'Meal').reduce((sum, e) => sum + e.amount, 0);
+  const otherTotal = expenses.filter(e => !['Gas','Repair','Meal'].includes(e.type)).reduce((sum, e) => sum + e.amount, 0);
+
   const chartData = [
-    { name: 'Gas', population: expenses.filter(e => e.type === 'Gas').reduce((sum, e) => sum + e.amount, 0) || 10, color: '#FF6384', legendFontColor: '#aaa', legendFontSize: 12 },
-    { name: 'Repairs', population: expenses.filter(e => e.type === 'Repair').reduce((sum, e) => sum + e.amount, 0) || 10, color: '#36A2EB', legendFontColor: '#aaa', legendFontSize: 12 },
-    { name: 'Meals', population: expenses.filter(e => e.type === 'Meal').reduce((sum, e) => sum + e.amount, 0) || 10, color: '#FFCE56', legendFontColor: '#aaa', legendFontSize: 12 },
-    { name: 'Other', population: expenses.filter(e => !['Gas','Repair','Meal'].includes(e.type)).reduce((sum, e) => sum + e.amount, 0) || 10, color: '#4BC0C0', legendFontColor: '#aaa', legendFontSize: 12 },
+    { 
+      name: `Gas ($${gasTotal.toFixed(2)})`, 
+      population: gasTotal || 0.1, 
+      color: '#FF6384', 
+      legendFontColor: '#aaa', 
+      legendFontSize: 12 
+    },
+    { 
+      name: `Repairs ($${repairTotal.toFixed(2)})`, 
+      population: repairTotal || 0.1, 
+      color: '#36A2EB', 
+      legendFontColor: '#aaa', 
+      legendFontSize: 12 
+    },
+    { 
+      name: `Meals ($${mealTotal.toFixed(2)})`, 
+      population: mealTotal || 0.1, 
+      color: '#FFCE56', 
+      legendFontColor: '#aaa', 
+      legendFontSize: 12 
+    },
+    { 
+      name: `Other ($${otherTotal.toFixed(2)})`, 
+      population: otherTotal || 0.1, 
+      color: '#4BC0C0', 
+      legendFontColor: '#aaa', 
+      legendFontSize: 12 
+    },
   ];
 
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
   return (
     <SafeAreaView style={styles.container}>
-      
-      {/* HEADER */}
       <View style={styles.header}>
         <Text style={styles.title}>Tax Wallet</Text>
         <View style={{flexDirection: 'row'}}>
@@ -177,16 +198,12 @@ export default function WalletScreen({ navigation }) {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        
-        {/* SUMMARY CARDS */}
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
-          {/* Card 1: Total Deductions */}
           <View style={[styles.balanceCard, { width: screenWidth - 40, marginRight: 10 }]}>
             <Text style={styles.balanceLabel}>Total Tax Write-Off</Text>
             <Text style={styles.balanceValue}>${(parseFloat(totalSavings) + parseFloat(totalExpenses)).toFixed(2)}</Text>
             <Text style={styles.lastExportText}>Combined Mileage + Expenses</Text>
           </View>
-          {/* Card 2: Expense Breakdown */}
           <View style={[styles.balanceCard, { width: screenWidth - 40, backgroundColor: '#2A2A2A' }]}>
              <Text style={styles.balanceLabel}>Expenses vs Mileage</Text>
              <Text style={[styles.balanceValue, {fontSize: 24, marginTop: 5}]}>Exp: ${totalExpenses}</Text>
@@ -194,7 +211,6 @@ export default function WalletScreen({ navigation }) {
           </View>
         </ScrollView>
 
-        {/* EXPENSE CHART */}
         {expenses.length > 0 && (
           <View style={styles.chartContainer}>
             <Text style={styles.sectionTitle}>Expense Breakdown</Text>
@@ -211,7 +227,6 @@ export default function WalletScreen({ navigation }) {
           </View>
         )}
 
-        {/* TABS */}
         <View style={styles.tabRow}>
           <TouchableOpacity onPress={() => setActiveTab('expenses')} style={[styles.tab, activeTab === 'expenses' && styles.activeTab]}>
             <Text style={[styles.tabText, activeTab === 'expenses' && styles.activeTabText]}>Expenses</Text>
@@ -221,7 +236,6 @@ export default function WalletScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* ADD EXPENSE FORM */}
         {activeTab === 'expenses' && (
           <View>
             <TouchableOpacity style={styles.addBtn} onPress={() => setShowExpenseForm(!showExpenseForm)}>
@@ -246,7 +260,6 @@ export default function WalletScreen({ navigation }) {
                   ))}
                 </View>
 
-                {/* RECEIPT PREVIEW / SCAN BUTTON */}
                 {newExpense.receiptUri ? (
                   <View style={styles.previewContainer}>
                     <Image source={{ uri: newExpense.receiptUri }} style={styles.receiptPreview} />
@@ -267,7 +280,6 @@ export default function WalletScreen({ navigation }) {
               </View>
             )}
 
-            {/* EXPENSES LIST */}
             {expenses.map((item) => (
               <TouchableOpacity key={item.id} style={styles.itemRow} onLongPress={() => confirmDelete(item.id, 'expenses')}>
                 <View style={styles.iconBox}>
@@ -279,7 +291,6 @@ export default function WalletScreen({ navigation }) {
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.itemAmount}>-${item.amount.toFixed(2)}</Text>
-                  {/* Receipt Icon */}
                   {item.receiptUri && (
                     <TouchableOpacity onPress={() => setViewReceipt(item.receiptUri)}>
                       <Ionicons name="receipt-outline" size={16} color="#aaa" style={{marginTop: 4}} />
@@ -291,7 +302,6 @@ export default function WalletScreen({ navigation }) {
           </View>
         )}
 
-        {/* TRIPS LIST */}
         {activeTab === 'trips' && trips.map((item) => (
           <TouchableOpacity key={item.id} style={styles.itemRow} onLongPress={() => confirmDelete(item.id, 'trips')}>
             <View style={[styles.iconBox, {backgroundColor: '#2A2A2A'}]}>
@@ -311,7 +321,6 @@ export default function WalletScreen({ navigation }) {
         <View style={{height: 100}} />
       </ScrollView>
 
-      {/* RECEIPT MODAL */}
       <Modal visible={!!viewReceipt} transparent={true} animationType="fade">
         <View style={styles.modalContainer}>
           <TouchableOpacity style={styles.closeModal} onPress={() => setViewReceipt(null)}>
@@ -332,24 +341,19 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: 'bold', color: 'white' },
   exportBtn: { flexDirection: 'row', backgroundColor: '#333', padding: 8, borderRadius: 8, alignItems: 'center' },
   exportText: { color: COLORS.primary, marginLeft: 5, fontWeight: 'bold' },
-  
   balanceCard: { backgroundColor: COLORS.card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#333', height: 140, justifyContent: 'center' },
   balanceLabel: { color: COLORS.textSecondary, fontSize: 14, marginBottom: 5 },
   balanceValue: { color: 'white', fontSize: 36, fontWeight: 'bold' },
   lastExportText: { color: COLORS.success, fontSize: 12, marginTop: 5 },
-
   chartContainer: { alignItems: 'center', marginBottom: 20, backgroundColor: '#1E1E1E', borderRadius: 15, padding: 10 },
   sectionTitle: { color: 'white', fontWeight: 'bold', marginBottom: 10 },
-
   tabRow: { flexDirection: 'row', marginBottom: 20, backgroundColor: '#333', borderRadius: 10, padding: 4 },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
   activeTab: { backgroundColor: '#1E1E1E' },
   tabText: { color: '#888', fontWeight: 'bold' },
   activeTabText: { color: 'white' },
-
   addBtn: { flexDirection: 'row', backgroundColor: COLORS.primary, padding: 12, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
   addBtnText: { color: 'black', fontWeight: 'bold', marginLeft: 5 },
-
   formCard: { backgroundColor: '#252525', padding: 15, borderRadius: 12, marginBottom: 20 },
   formTitle: { color: 'white', fontWeight: 'bold', marginBottom: 15 },
   inputRow: { flexDirection: 'row', marginBottom: 15 },
@@ -363,18 +367,15 @@ const styles = StyleSheet.create({
   scanText: { color: COLORS.primary, marginLeft: 10 },
   saveBtn: { backgroundColor: COLORS.success, padding: 15, borderRadius: 8, alignItems: 'center' },
   saveText: { color: 'white', fontWeight: 'bold' },
-
   previewContainer: { marginBottom: 15, alignItems: 'center' },
   receiptPreview: { width: 100, height: 100, borderRadius: 10 },
   removeReceipt: { position: 'absolute', top: -10, right: -10, backgroundColor: COLORS.danger, borderRadius: 15, padding: 5 },
-
   itemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, padding: 15, borderRadius: 12, marginBottom: 10 },
   iconBox: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
   itemVendor: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   itemDate: { color: '#888', fontSize: 12 },
   itemAmount: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   itemSub: { color: '#888', fontSize: 12, textAlign: 'right' },
-
   modalContainer: { flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' },
   fullReceipt: { width: '100%', height: '80%' },
   closeModal: { position: 'absolute', top: 50, right: 20, zIndex: 10 }
