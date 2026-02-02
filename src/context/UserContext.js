@@ -12,6 +12,8 @@ export const UserProvider = ({ children }) => {
 
   // --- NEW: Helper Function to Force Refresh ---
   const refreshPremiumStatus = async () => {
+    /* */
+    // We use the existing manager to fetch fresh data
     const status = await SubscriptionManager.getCustomerInfo();
     console.log("🔄 Context Refreshing Premium Status:", status);
     setIsPremium(status);
@@ -36,7 +38,7 @@ export const UserProvider = ({ children }) => {
   }, []);
 
   return (
-    // EXPOSE 'refreshPremiumStatus' TO THE APP
+    // EXPOSE 'refreshPremiumStatus' TO THE APP so PremiumScreen can use it
     <UserContext.Provider value={{ user, isPremium, loading, refreshPremiumStatus }}>
       {children}
     </UserContext.Provider>

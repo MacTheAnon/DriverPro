@@ -67,7 +67,7 @@ const PremiumScreen = ({ navigation }) => {
 
         <TouchableOpacity 
           style={[styles.subscribeButton, { backgroundColor: '#333', marginTop: 30, width: '80%' }]} 
-          onPress={() => navigation.navigate('Dashboard')}
+          onPress={() => navigation.navigate('Home')}
         >
           <Text style={styles.subscribeText}>Go to Dashboard</Text>
         </TouchableOpacity>
