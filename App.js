@@ -6,15 +6,19 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Font from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import * as TaskManager from 'expo-task-manager';
-import { onAuthStateChanged } from 'firebase/auth';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
 import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { auth } from './src/firebaseConfig';
+// Context & Auth
+import { UserContext, UserProvider } from './src/context/UserContext';
+
+// Screens
 import DashboardScreen from './src/screens/DashboardScreen';
 import DocumentUploadScreen from './src/screens/DocumentUploadScreen';
+import DocumentsScreen from './src/screens/DocumentsScreen'; // <--- NEW IMPORT
 import LoginScreen from './src/screens/LoginScreen';
+import PremiumScreen from './src/screens/PremiumScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import TrackScreen from './src/screens/TrackScreen';
 import WalletScreen from './src/screens/WalletScreen';
@@ -77,65 +81,67 @@ function MainTabNavigator() {
   );
 }
 
+// Helper Component for Navigation Logic
+const AppNavigation = () => {
+  const { user, loading } = useContext(UserContext); 
+
+  if (loading) return null; 
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {user ? (
+          <>
+            <Stack.Screen name="Dashboard" component={MainTabNavigator} />
+            <Stack.Screen name="Track" component={TrackScreen} />
+            <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
+            <Stack.Screen name="Documents" component={DocumentsScreen} /> {/* <--- NEW ROUTE */}
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="Premium" component={PremiumScreen} options={{ presentation: 'modal', headerShown: false }} />
+          </>
+        ) : (
+          <Stack.Screen name="Login" component={LoginScreen} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+};
+
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
-  const [user, setUser] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false); // New flag to know when auth check is done
   const [fadeAnim] = useState(new Animated.Value(1));
 
   useEffect(() => {
-    // 1. Listen for Auth Changes (and Auto-Login)
-    const unsubscribeAuth = onAuthStateChanged(auth, (authenticatedUser) => {
-      setUser(authenticatedUser);
-      setAuthChecked(true); // Auth check is complete
-    });
-
-    // 2. Load Fonts & Assets
     async function prepare() {
       try {
         await Font.loadAsync({ ...Ionicons.font });
-        // Artificial delay for splash screen (optional)
         await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (e) { console.warn(e); } finally { setAppIsReady(true); }
     }
     prepare();
-    return () => unsubscribeAuth();
   }, []);
 
   const onLayoutRootView = useCallback(async () => {
-    if (appIsReady && authChecked) { // Only hide splash screen when BOTH app and auth are ready
+    if (appIsReady) { 
       await SplashScreen.hideAsync();
       Animated.timing(fadeAnim, { toValue: 0, duration: 1000, useNativeDriver: true }).start();
     }
-  }, [appIsReady, authChecked, fadeAnim]);
+  }, [appIsReady, fadeAnim]);
 
-  if (!appIsReady || !authChecked) return null; // Wait for everything
+  if (!appIsReady) return null; 
 
   return (
-    <SafeAreaProvider>
-      <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
-        <NavigationContainer>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            {user ? (
-              // --- LOGGED IN STACK ---
-              <>
-                {/* FIXED: Dashboard is now FIRST, so it opens by default */}
-                <Stack.Screen name="Dashboard" component={MainTabNavigator} />
-                <Stack.Screen name="DocumentUpload" component={DocumentUploadScreen} />
-                <Stack.Screen name="Settings" component={SettingsScreen} />
-              </>
-            ) : (
-              // --- LOGGED OUT STACK ---
-              <Stack.Screen name="Login" component={LoginScreen} />
-            )}
-          </Stack.Navigator>
-        </NavigationContainer>
-        
-        {/* Custom Splash Animation Overlay */}
-        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}>
-          <Image source={require('./assets/logo.png')} style={{ width: 180, height: 180, resizeMode: 'contain' }} />
-        </Animated.View>
-      </View>
-    </SafeAreaProvider>
+    <UserProvider> 
+      <SafeAreaProvider>
+        <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
+          <AppNavigation /> 
+          
+          {/* Splash Overlay */}
+          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}>
+            <Image source={require('./assets/logo.png')} style={{ width: 180, height: 180, resizeMode: 'contain' }} />
+          </Animated.View>
+        </View>
+      </SafeAreaProvider>
+    </UserProvider>
   );
 }
