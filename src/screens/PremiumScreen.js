@@ -1,9 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react'; // Added useContext
 import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { UserContext } from '../context/UserContext'; // Added Context
 import SubscriptionManager from '../utils/SubscriptionManager';
 
 const PremiumScreen = ({ navigation }) => {
+  // CRITICAL FIX: Get the refresh function from Context
+  const { refreshPremiumStatus } = useContext(UserContext); 
+  
   const [packages, setPackages] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -17,7 +21,6 @@ const PremiumScreen = ({ navigation }) => {
       
       // Auto-select the Annual plan (usually the middle one) or the first one
       if (packs.length > 0) {
-        // Try to find annual, otherwise pick first
         const annual = packs.find(p => p.packageType === 'ANNUAL');
         setSelectedPackage(annual || packs[0]);
       }
@@ -35,6 +38,7 @@ const PremiumScreen = ({ navigation }) => {
     // Attempt Purchase
     const success = await SubscriptionManager.purchase(selectedPackage);
     if (success) {
+      await refreshPremiumStatus(); // <--- THIS IS THE MISSING KEY
       Alert.alert("Success!", "Welcome to DriverPro+");
       navigation.goBack();
     }
@@ -43,6 +47,7 @@ const PremiumScreen = ({ navigation }) => {
   const handleRestore = async () => {
     const success = await SubscriptionManager.restore();
     if (success) {
+      await refreshPremiumStatus(); // <--- THIS IS THE MISSING KEY
       Alert.alert("Restored", "Your Pro status is back!");
       navigation.goBack();
     } else {
@@ -69,8 +74,7 @@ const PremiumScreen = ({ navigation }) => {
         <BenefitItem icon="document-text" title="IRS-Compliant PDF Reports" desc="Export detailed logs for your accountant." />
         <BenefitItem icon="pie-chart" title="Advanced Analytics" desc="See exactly where your money goes." />
         <BenefitItem icon="infinite" title="Unlimited Receipt Scans" desc="Store every expense safely." />
-        <BenefitItem icon="time" title="Smart Work Schedules" desc="Auto-tag trips as Business during your set hours." 
-        />
+        <BenefitItem icon="time" title="Smart Work Schedules" desc="Auto-tag trips as Business during your set hours." />
       </View>
 
       {/* PLAN SELECTOR (NEW) */}

@@ -19,7 +19,8 @@ function getDistanceFromLatLonInMiles(lat1, lon1, lat2, lon2) {
   const dLon = deg2rad(lon2 - lon1); 
   const a = 
     Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2); 
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+    Math.sin(dLon/2) * Math.sin(dLon / 2); 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
   const d = R * c; 
   return d;
@@ -29,26 +30,13 @@ function deg2rad(deg) {
   return deg * (Math.PI/180);
 }
 
-// --- FEATURE 1: Smart Schedule Logic ---
-const getAutoClassification = (tripDate, isPremium) => {
-  if (!isPremium) return 'Personal'; 
-  const WORK_DAYS = [1, 2, 3, 4, 5]; // Mon-Fri
-  const START_HOUR = 9;
-  const END_HOUR = 17;
-  const tripDay = tripDate.getDay(); 
-  const tripHour = tripDate.getHours(); 
-  if (WORK_DAYS.includes(tripDay) && tripHour >= START_HOUR && tripHour < END_HOUR) {
-    return 'Business';
-  }
-  return 'Personal';
-};
-
-// --- FEATURE 3: Frequent Places Logic (Mock) ---
+// --- FEATURE: Frequent Places Logic (Mock) ---
 const checkFrequentPlaces = (coords) => {
-  const HOME_LAT = 38.9717; // Example Kansas City
+  // In a real app, you would compare 'coords' against a list of saved Places in Firestore
+  const HOME_LAT = 38.9717; 
   const HOME_LON = -94.6174;
   const dist = getDistanceFromLatLonInMiles(coords.latitude, coords.longitude, HOME_LAT, HOME_LON);
-  if (dist < 0.2) return "Home";
+  if (dist < 0.2) return "Home Base";
   return null;
 };
 
@@ -63,8 +51,9 @@ export default function TrackScreen({ navigation }) {
   const [gigEarnings, setGigEarnings] = useState(''); 
   const [netProfit, setNetProfit] = useState(0); 
 
-  // Vehicle Stats
+  // Vehicle & Schedule Stats
   const [totalOdometer, setTotalOdometer] = useState(0);
+  const [smartSchedule, setSmartSchedule] = useState(null); // <--- LOADED FROM DB
   const [showOdometerModal, setShowOdometerModal] = useState(false);
   const [manualOdometerInput, setManualOdometerInput] = useState('');
 
@@ -73,13 +62,14 @@ export default function TrackScreen({ navigation }) {
   const subscriptionRef = useRef(null);
   const user = auth.currentUser;
 
-  // --- 1. Load User's Total Mileage on Start ---
+  // --- 1. Load User Data on Start ---
   useEffect(() => {
     if (user) {
       getDoc(doc(db, "users", user.uid)).then((snap) => {
         if (snap.exists()) {
           const data = snap.data();
           setTotalOdometer(parseFloat(data.currentOdometer || 0));
+          setSmartSchedule(data.schedule); // <--- Load Schedule Settings
         }
       });
     }
@@ -152,10 +142,10 @@ export default function TrackScreen({ navigation }) {
                const lastPoint = prevRoute[prevRoute.length - 1];
                const milesDelta = getDistanceFromLatLonInMiles(lastPoint.latitude, lastPoint.longitude, latitude, longitude);
 
-               if (milesDelta > 0.002) {
+               if (milesDelta > 0.002) { // Filter GPS noise
                  setDistance(d => {
                     const newDist = d + milesDelta;
-                    // Feature B Logic (Profit)
+                    // Real-time Profit Calc
                     const estimatedExpense = newDist * 0.30; 
                     const currentGross = parseFloat(gigEarnings) || 0;
                     setNetProfit(currentGross - estimatedExpense);
@@ -186,8 +176,24 @@ export default function TrackScreen({ navigation }) {
       let finalRoute = [...routeCoordinates];
       if (bgData) finalRoute = [...finalRoute, ...JSON.parse(bgData)]; 
 
-      const type = getAutoClassification(new Date(), isPremium);
+      // --- SMART CLASSIFICATION (LINKED TO SETTINGS) ---
+      let type = 'Personal';
       
+      if (isPremium && smartSchedule && smartSchedule.enabled) {
+        const now = new Date();
+        const currentMins = (now.getHours() * 60) + now.getMinutes();
+        
+        // Parse "09:00" -> 540 minutes
+        const [startH, startM] = smartSchedule.start.split(':').map(Number);
+        const [endH, endM] = smartSchedule.end.split(':').map(Number);
+        const startMins = (startH * 60) + startM;
+        const endMins = (endH * 60) + endM;
+
+        if (currentMins >= startMins && currentMins <= endMins) {
+          type = 'Business';
+        }
+      }
+
       let startName = "Unknown";
       if (finalRoute.length > 0) {
         const place = checkFrequentPlaces(finalRoute[0]);
@@ -201,7 +207,7 @@ export default function TrackScreen({ navigation }) {
         userId: user.uid,
         miles: distance.toFixed(2),
         savings: earnings.toFixed(2),
-        type: type, 
+        type: type, // Uses the Smart Schedule result
         grossEarnings: gigEarnings || "0",
         netProfit: netProfit.toFixed(2),
         startLocation: startName,
@@ -215,15 +221,20 @@ export default function TrackScreen({ navigation }) {
       
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, {
-        currentOdometer: newOdometer,    // Save new reading
-        totalTrackedMiles: increment(distance) // Keep a separate counter for "App Usage"
+        currentOdometer: newOdometer,    
+        totalTrackedMiles: increment(distance) 
       });
 
-      // Check Maintenance Intervals
       checkMaintenance(newOdometer);
 
       await AsyncStorage.removeItem('pending_locations');
-      Alert.alert('Trip Saved', `Logged as ${type}. Savings: $${earnings.toFixed(2)}`);
+      
+      // Notify User
+      if (type === 'Business') {
+        Alert.alert('Trip Auto-Tagged 🤖', `Logged as Business Trip based on your schedule.\nSavings: $${earnings.toFixed(2)}`);
+      } else {
+        Alert.alert('Trip Saved', `Logged as Personal.\nSavings: $${earnings.toFixed(2)}`);
+      }
       
     } catch (error) {
       console.error(error);

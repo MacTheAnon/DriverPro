@@ -1,6 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+// ---------------------------------------------------------
+// FIX: Use 'legacy' import for copyAsync/documentDirectory
+// ---------------------------------------------------------
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -28,7 +31,7 @@ export default function DocumentsScreen({ navigation }) {
     }
   };
 
-  // --- NEW: CHOICE MENU ---
+  // --- CHOICE MENU ---
   const handleUploadRequest = (type) => {
     Alert.alert(
       "Upload Document",
@@ -79,9 +82,10 @@ export default function DocumentsScreen({ navigation }) {
 
   const saveImagePermanently = async (uri, type) => {
     try {
-      const fileName = `${type}_${Date.now()}.jpg`; // Unique name to prevent caching issues
+      const fileName = `${type}_${Date.now()}.jpg`; 
       const newPath = FileSystem.documentDirectory + fileName;
 
+      // This works now because we imported from 'legacy'
       await FileSystem.copyAsync({ from: uri, to: newPath });
 
       // Save Path
@@ -209,7 +213,6 @@ const styles = StyleSheet.create({
   
   docImage: { width: '100%', height: 200, borderRadius: 10, resizeMode: 'cover' },
 
-  // Full Screen Modal
   modalContainer: { flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' },
   fullImage: { width: '100%', height: '80%' },
   closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10 }
