@@ -3,16 +3,14 @@ import Purchases from 'react-native-purchases';
 
 // 1. YOUR API KEYS
 const API_KEYS = {
-  apple: "appl_BpVXspbmCpzCXliDeOJlsGwbGIx",  // Your Real Key
-  google: "goog_YOUR_REVENUECAT_KEY_HERE"     // Placeholder for Android
+  apple: "appl_BpVXspbmCpzCXliDeOJlsGwbGIx", 
+  google: "goog_YOUR_REVENUECAT_KEY_HERE"
 };
 
-// 2. YOUR ENTITLEMENT ID (Must match RevenueCat exactly)
 const ENTITLEMENT_ID = 'pro'; 
 
 class SubscriptionManager {
   
-  // Start the System
   static async configure() {
     try {
       if (Platform.OS === 'ios') {
@@ -26,19 +24,18 @@ class SubscriptionManager {
     }
   }
 
-  // Check if they are already premium (runs on App Start)
   static async getCustomerInfo() {
     try {
       const customerInfo = await Purchases.getCustomerInfo();
-      // Check if they have an active entitlement called "pro"
-      const isActive = customerInfo.entitlements.active[ENTITLEMENT_ID] !== undefined;
-      return isActive;
+      // DEBUG: Log what entitlements the user actually has
+      console.log("🔍 Checking Entitlements:", Object.keys(customerInfo.entitlements.active));
+      
+      return customerInfo.entitlements.active[ENTITLEMENT_ID] !== undefined;
     } catch (e) {
       return false;
     }
   }
 
-  // Get the Offerings to display
   static async getOfferings() {
     try {
       const offerings = await Purchases.getOfferings();
@@ -52,16 +49,23 @@ class SubscriptionManager {
     }
   }
 
-  // The "Buy Now" Action
   static async purchase(packageToBuy) {
     try {
       const { customerInfo } = await Purchases.purchasePackage(packageToBuy);
       
+      // DEBUG LOGS - READ THESE IN YOUR TERMINAL
+      console.log("💰 Purchase Complete. Checking Entitlements...");
+      console.log("📜 Active Entitlements:", JSON.stringify(customerInfo.entitlements.active, null, 2));
+
       if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
-        console.log("✅ Purchase Successful! Entitlement Active.");
+        console.log("✅ verified: 'pro' is active.");
         return true; 
       } else {
-        console.log("⚠️ Purchase complete, but entitlement missing. Check RevenueCat Product Linking.");
+        console.log("❌ FAILURE: Product purchased, but 'pro' entitlement is missing.");
+        Alert.alert(
+          "Setup Error", 
+          "Payment successful, but RevenueCat didn't unlock the feature. \n\nGo to RevenueCat Dashboard -> Products -> Select your product -> Click 'Entitlements' in sidebar -> Attach 'pro'."
+        );
         return false;
       }
     } catch (e) {
@@ -72,21 +76,11 @@ class SubscriptionManager {
     }
   }
 
-  // The "Restore Purchases" Action
   static async restore() {
     try {
       const customerInfo = await Purchases.restorePurchases();
-      
-      // --- DEBUGGING LOG ---
-      console.log("🔍 RESTORE DEBUG:", JSON.stringify(customerInfo.entitlements.active, null, 2));
-
-      if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
-        return true;
-      } else {
-        // If logs show empty {}, it means the user bought the product, 
-        // but the Product is NOT linked to the Entitlement in RevenueCat.
-        return false;
-      }
+      console.log("♻️ Restore found:", Object.keys(customerInfo.entitlements.active));
+      return customerInfo.entitlements.active[ENTITLEMENT_ID] !== undefined;
     } catch (e) {
       Alert.alert("Restore Error", e.message);
       return false;
