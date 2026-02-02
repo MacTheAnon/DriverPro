@@ -1,16 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { deleteUser } from 'firebase/auth'; // ADDED: For account deletion
-import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { deleteUser } from 'firebase/auth';
+import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore'; // Added updateDoc
+import { useContext, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { UserContext } from '../context/UserContext'; // Added Context import
 import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
 const GEOFENCE_TASK = 'geofence-tracking-task';
 
 export default function SettingsScreen({ navigation }) {
+  const { user, isPremium } = useContext(UserContext); // Use Context
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
@@ -22,12 +24,17 @@ export default function SettingsScreen({ navigation }) {
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehicleYear, setVehicleYear] = useState('');
 
-  const [isGeofenceEnabled, setIsGeofenceEnabled] = useState(false);
+  // Smart Schedule State
+  const [autoTagEnabled, setAutoTagEnabled] = useState(false);
+  const [workStart, setWorkStart] = useState('09:00');
+  const [workEnd, setWorkEnd] = useState('17:00');
 
-  const user = auth.currentUser;
+  // Geofence State
+  const [isGeofenceEnabled, setIsGeofenceEnabled] = useState(false);
 
   useEffect(() => {
     const fetchProfile = async () => {
+      if (!user) return;
       try {
         const docSnap = await getDoc(doc(db, "users", user.uid));
         if (docSnap.exists()) {
@@ -40,6 +47,12 @@ export default function SettingsScreen({ navigation }) {
           setVehicleYear(data.vehicleYear || '');
           
           setIsGeofenceEnabled(data.geofenceActive || false);
+
+          if (data.schedule) {
+            setAutoTagEnabled(data.schedule.enabled);
+            setWorkStart(data.schedule.start || '09:00');
+            setWorkEnd(data.schedule.end || '17:00');
+          }
         }
       } catch (error) {
         console.error("Profile Load Error:", error);
@@ -71,15 +84,20 @@ export default function SettingsScreen({ navigation }) {
         }]);
 
         setIsGeofenceEnabled(true);
-        await setDoc(doc(db, "users", user.uid), { geofenceActive: true }, { merge: true });
-        Alert.alert("Home Base Set", "DriverPro will auto-track when you exit this 150m radius.");
+        await setDoc(doc(db, "users", user.uid), { 
+          geofenceActive: true,
+          homeLat: location.coords.latitude,
+          homeLon: location.coords.longitude
+        }, { merge: true });
+        Alert.alert("Home Base Set 🏠", `Tracking will pause automatically when you arrive here.\nLat: ${location.coords.latitude.toFixed(4)}`);
       } catch (e) {
-        Alert.alert("Error", "Could not lock Home Base location.");
+        Alert.alert("Error", "Could not lock Home Base location. Try moving near a window.");
       }
     } else {
       await Location.stopGeofencingAsync(GEOFENCE_TASK);
       setIsGeofenceEnabled(false);
       await setDoc(doc(db, "users", user.uid), { geofenceActive: false }, { merge: true });
+      Alert.alert("Disabled", "Auto-tracking turned off.");
     }
   };
 
@@ -97,17 +115,17 @@ export default function SettingsScreen({ navigation }) {
         vehicleMake,
         vehicleModel,
         vehicleYear,
+        schedule: { enabled: autoTagEnabled, start: workStart, end: workEnd },
         updatedAt: new Date().toISOString()
       }, { merge: true });
-      Alert.alert("Success", "Profile & Vehicle settings saved.");
+      Alert.alert("Success", "Settings saved successfully.");
     } catch (e) {
-      Alert.alert("Error", "Could not save profile.");
+      Alert.alert("Error", "Could not save settings.");
     } finally {
       setSaving(false);
     }
   };
 
-  // --- NEW: Compliance Requirement (Account Deletion) ---
   const handleDeleteAccount = () => {
     Alert.alert(
       "Delete Account",
@@ -120,13 +138,8 @@ export default function SettingsScreen({ navigation }) {
           onPress: async () => {
              try {
                setLoading(true);
-               // 1. Delete Firestore Data
                await deleteDoc(doc(db, "users", user.uid));
-               // Note: A real app should use Cloud Functions to recursively delete subcollections (trips/expenses)
-               
-               // 2. Delete Auth User
                await deleteUser(user);
-               // Auth listener in App.js will redirect to Login
              } catch (error) {
                setLoading(false);
                Alert.alert("Error", "Please re-login and try again (Security Requirement).");
@@ -178,10 +191,6 @@ export default function SettingsScreen({ navigation }) {
             </View>
             <Text style={styles.inputLabel}>YEAR</Text>
             <TextInput style={styles.input} value={vehicleYear} onChangeText={setVehicleYear} keyboardType="numeric" placeholder="2024" placeholderTextColor="#666" />
-            
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
-              {saving ? <ActivityIndicator color="white" /> : <Text style={styles.saveText}>Save All Changes</Text>}
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -189,24 +198,60 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>SMART AUTOMATION</Text>
           <View style={styles.card}>
+            
+            {/* Geofence Row */}
             <View style={styles.autoRow}>
               <View style={styles.iconCircle}><Ionicons name="map" size={20} color="white" /></View>
               <View style={{ flex: 1, marginLeft: 15 }}>
                 <Text style={styles.rowText}>Home-Base Geofencing</Text>
-                <Text style={styles.subText}>Auto-track trips when leaving home/office.</Text>
+                <Text style={styles.subText}>Auto-pause tracking at home.</Text>
               </View>
-              <TouchableOpacity onPress={toggleGeofence}>
-                <Ionicons name={isGeofenceEnabled ? "toggle" : "toggle-outline"} size={42} color={isGeofenceEnabled ? COLORS.success : "#444"} />
-              </TouchableOpacity>
+              <Switch 
+                value={isGeofenceEnabled} 
+                onValueChange={toggleGeofence}
+                trackColor={{ false: "#767577", true: COLORS.primary }}
+              />
             </View>
+
+            <View style={styles.divider} />
+
+            {/* Schedule Row */}
+            <View style={styles.autoRow}>
+              <View style={styles.iconCircle}><Ionicons name="time" size={20} color="white" /></View>
+              <View style={{ flex: 1, marginLeft: 15 }}>
+                <Text style={styles.rowText}>Work Hours Auto-Tag</Text>
+                <Text style={styles.subText}>Tag trips as 'Business' during work hours.</Text>
+              </View>
+              <Switch 
+                value={autoTagEnabled} 
+                onValueChange={(val) => {
+                    if (!isPremium && val) navigation.navigate('Premium');
+                    else setAutoTagEnabled(val);
+                }}
+                trackColor={{ false: "#767577", true: COLORS.primary }}
+              />
+            </View>
+
+            {autoTagEnabled && (
+                <View style={{marginTop: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center'}}>
+                    <TextInput style={styles.timeInput} value={workStart} onChangeText={setWorkStart} placeholder="09:00" placeholderTextColor="#666" />
+                    <Text style={{color:'white', marginHorizontal: 10}}>TO</Text>
+                    <TextInput style={styles.timeInput} value={workEnd} onChangeText={setWorkEnd} placeholder="17:00" placeholderTextColor="#666" />
+                </View>
+            )}
+
           </View>
         </View>
 
-        <TouchableOpacity style={styles.logoutBtn} onPress={() => auth.signOut()}>
-          <Text style={styles.logoutText}>Sign Out of DriverPro</Text>
+        {/* SAVE BUTTON */}
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+            {saving ? <ActivityIndicator color="white" /> : <Text style={styles.saveText}>Save All Changes</Text>}
         </TouchableOpacity>
 
-        {/* DELETE ACCOUNT (Mandatory for iOS) */}
+        <TouchableOpacity style={styles.logoutBtn} onPress={() => auth.signOut()}>
+          <Text style={styles.logoutText}>Sign Out</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
           <Text style={styles.deleteText}>Delete Account & Data</Text>
         </TouchableOpacity>
@@ -227,12 +272,14 @@ const styles = StyleSheet.create({
   card: { backgroundColor: COLORS.card, borderRadius: 15, padding: 20, borderWidth: 1, borderColor: '#333' },
   inputLabel: { color: COLORS.textSecondary, fontSize: 10, fontWeight: 'bold', marginBottom: 8 },
   input: { backgroundColor: '#252525', color: 'white', padding: 15, borderRadius: 12, fontSize: 16, marginBottom: 20 },
-  saveBtn: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10 },
-  saveText: { color: 'white', fontWeight: 'bold' },
-  autoRow: { flexDirection: 'row', alignItems: 'center' },
-  iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
+  saveBtn: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginBottom: 30 },
+  saveText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  autoRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 5 },
+  iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
   rowText: { flex: 1, color: 'white', fontSize: 15, fontWeight: 'bold' },
   subText: { color: COLORS.textSecondary, fontSize: 11, marginTop: 2 },
+  timeInput: { backgroundColor: '#252525', color: 'white', padding: 10, borderRadius: 8, width: 80, textAlign: 'center', fontWeight: 'bold' },
+  divider: { height: 1, backgroundColor: '#333', marginVertical: 15 },
   logoutBtn: { marginBottom: 20, alignItems: 'center' },
   logoutText: { color: COLORS.textSecondary, fontWeight: 'bold' },
   deleteBtn: { alignItems: 'center', marginBottom: 20 },

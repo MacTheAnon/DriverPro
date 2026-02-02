@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import COLORS from '../styles/colors';
 
-// 1. The Persona
 const SYSTEM_PROMPT = `You are TaxBot, an expert AI accountant for gig economy drivers (Uber, Lyft, DoorDash). 
 - You specialize in IRS Schedule C deductions.
 - The Standard Mileage Rate for 2026 is $0.68/mile.
@@ -32,10 +31,13 @@ export default function ChatScreen({ navigation }) {
 
   // 2. The Real AI Brain
   const fetchAIResponse = async (userText) => {
+    // Check if key exists
+    console.log("Checking API Key...", process.env.EXPO_PUBLIC_OPENAI_API_KEY ? "EXISTS" : "MISSING");
+    
     const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
 
     if (!apiKey) {
-      return "Error: No API Key found. Please add EXPO_PUBLIC_OPENAI_API_KEY to your .env file.";
+      return "Error: No API Key found. Please add EXPO_PUBLIC_OPENAI_API_KEY to your .env file and restart the server.";
     }
 
     try {
@@ -46,7 +48,7 @@ export default function ChatScreen({ navigation }) {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "gpt-3.5-turbo", // Cost-effective and fast
+          model: "gpt-3.5-turbo",
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: userText }
@@ -59,7 +61,7 @@ export default function ChatScreen({ navigation }) {
       
       if (data.error) {
         console.error("OpenAI Error:", data.error);
-        return "My brain is having a glitch. (Check your API Key quota).";
+        return `My brain is having a glitch: ${data.error.message}`;
       }
 
       return data.choices[0].message.content.trim();

@@ -185,7 +185,7 @@ export default function DashboardScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* BADGES / ACHIEVEMENTS (NEW) */}
+        {/* BADGES / ACHIEVEMENTS */}
         <Text style={styles.sectionTitle}>Achievements</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.badgeScroll}>
           {badges.map((badge) => (
@@ -218,7 +218,7 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </View>
 
-        {/* QUICK ACTIONS */}
+        {/* TAXBOT BUTTON */}
         <TouchableOpacity 
            style={[styles.actionBtn, {backgroundColor: '#1E1E1E', borderWidth: 1, borderColor: COLORS.primary, marginTop: 10, marginBottom: 20, width: '100%'}]} 
            onPress={() => navigation.navigate('Chat')}
@@ -227,18 +227,28 @@ export default function DashboardScreen({ navigation }) {
            <Text style={[styles.actionText, {color: COLORS.primary}]}>Ask TaxBot AI</Text>
          </TouchableOpacity>
         
+        {/* QUICK ACTIONS ROW (Updated for 3 buttons) */}
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actionRow}>
+          {/* 1. Track */}
           <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Track')}>
             <Ionicons name={isTrackingActive ? "stop-circle" : "play-circle"} size={32} color={isTrackingActive ? COLORS.danger : "white"} />
-            <Text style={styles.actionText}>{isTrackingActive ? "Stop Trip" : "Start Trip"}</Text>
+            <Text style={styles.actionText}>{isTrackingActive ? "Stop" : "Start"}</Text>
           </TouchableOpacity>
           
+          {/* 2. Wallet */}
           <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Wallet')}>
             <Ionicons name="receipt" size={32} color="white" />
-            <Text style={styles.actionText}>View Wallet</Text>
+            <Text style={styles.actionText}>Wallet</Text>
+          </TouchableOpacity>
+
+          {/* 3. Documents (NEW) */}
+          <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Documents')}>
+            <Ionicons name="folder-open" size={32} color="white" />
+            <Text style={styles.actionText}>Docs</Text>
           </TouchableOpacity>
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -280,7 +290,9 @@ const styles = StyleSheet.create({
   statBox: { width: '48%', backgroundColor: COLORS.card, padding: 15, borderRadius: 15, borderWidth: 1, borderColor: '#333' },
   statLabel: { color: COLORS.textSecondary, fontSize: 12, marginBottom: 5 },
   statValue: { color: COLORS.text, fontSize: 22, fontWeight: 'bold' },
+  
+  // Action Row Styles (Updated for 3 items)
   actionRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 40 },
-  actionBtn: { width: '48%', flexDirection: 'row', padding: 15, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  actionText: { color: 'white', fontWeight: 'bold', marginLeft: 10 }
+  actionBtn: { width: '30%', flexDirection: 'column', padding: 15, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }, // Changed width & direction
+  actionText: { color: 'white', fontWeight: 'bold', marginTop: 5, textAlign: 'center', fontSize: 12 } // Adjusted text style
 });
