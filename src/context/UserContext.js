@@ -10,16 +10,23 @@ export const UserProvider = ({ children }) => {
   const [isPremium, setIsPremium] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // --- NEW: Helper Function to Force Refresh ---
+  const refreshPremiumStatus = async () => {
+    /* */
+    // We use the existing manager to fetch fresh data
+    const status = await SubscriptionManager.getCustomerInfo();
+    console.log("🔄 Context Refreshing Premium Status:", status);
+    setIsPremium(status);
+  };
+
   useEffect(() => {
-    // Listen for Auth Changes
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       
       if (currentUser) {
-        // If logged in, check if they paid
+        // Initialize and check once on load
         await SubscriptionManager.configure();
-        const premiumStatus = await SubscriptionManager.getCustomerInfo();
-        setIsPremium(premiumStatus);
+        await refreshPremiumStatus();
       } else {
         setIsPremium(false);
       }
@@ -31,7 +38,8 @@ export const UserProvider = ({ children }) => {
   }, []);
 
   return (
-    <UserContext.Provider value={{ user, isPremium, loading }}>
+    // EXPOSE 'refreshPremiumStatus' TO THE APP so PremiumScreen can use it
+    <UserContext.Provider value={{ user, isPremium, loading, refreshPremiumStatus }}>
       {children}
     </UserContext.Provider>
   );

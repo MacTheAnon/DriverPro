@@ -1,19 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location'; // ADDED: To check real tracking status
+import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'; // ADDED: RefreshControl
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
-const BACKGROUND_TRACKING_TASK = 'background-tracking-task'; // Must match App.js
+const BACKGROUND_TRACKING_TASK = 'background-tracking-task'; 
 
 export default function DashboardScreen({ navigation }) {
   const [stats, setStats] = useState({ milesToday: '0.0', taxSavings: '0.00', totalDeduction: '0.00' });
-  const [isTrackingActive, setIsTrackingActive] = useState(false); // ADDED: Real status
-  const [totalExpenses, setTotalExpenses] = useState(0); // ADDED: To hold expense total
+  const [isTrackingActive, setIsTrackingActive] = useState(false); 
+  const [totalExpenses, setTotalExpenses] = useState(0); 
   const [monthlyGoal, setMonthlyGoal] = useState(500); 
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [tempGoal, setTempGoal] = useState('500');
@@ -24,7 +24,14 @@ export default function DashboardScreen({ navigation }) {
 
   const user = auth.currentUser;
 
-  // 1. Check Tracking Status (On Focus/Load)
+  // --- BADGES LOGIC ---
+  const badges = [
+    { id: '1', name: 'Rookie', icon: 'car-sport', color: '#3498db', unlocked: true, desc: 'Started your first trip.' },
+    { id: '2', name: '100 Club', icon: 'speedometer', color: '#e67e22', unlocked: parseFloat(stats.milesToday) > 100, desc: 'Drove 100 miles in a day.' },
+    { id: '3', name: 'Tax Saver', icon: 'cash', color: '#2ecc71', unlocked: parseFloat(stats.totalDeduction) > 500, desc: 'Saved $500 in deductions.' },
+    { id: '4', name: 'Night Owl', icon: 'moon', color: '#9b59b6', unlocked: new Date().getHours() > 20, desc: 'Worked a late night shift.' },
+  ];
+
   const checkTrackingStatus = async () => {
     const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
     setIsTrackingActive(hasStarted);
@@ -40,13 +47,10 @@ export default function DashboardScreen({ navigation }) {
   useEffect(() => {
     if (!user) return;
 
-    // 2. Real-time Trip Data (Fixed Logic)
     const qTrips = query(collection(db, "trips"), where("userId", "==", user.uid));
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
       let todayM = 0; 
       let totalS = 0;
-      
-      // Get Start of Today (00:00:00)
       const startOfDay = new Date();
       startOfDay.setHours(0,0,0,0);
 
@@ -54,11 +58,7 @@ export default function DashboardScreen({ navigation }) {
         const data = doc.data();
         const miles = parseFloat(data.miles || 0);
         const savings = parseFloat(data.savings || 0);
-
-        // Accumulate Lifetime Savings
         totalS += savings;
-
-        // Accumulate ONLY Today's Miles
         if (data.timestamp?.toDate() >= startOfDay) {
           todayM += miles;
         }
@@ -66,13 +66,11 @@ export default function DashboardScreen({ navigation }) {
 
       setStats({ 
         milesToday: todayM.toFixed(1), 
-        taxSavings: totalS.toFixed(2), // Total Lifetime Deduction
-        // UPDATED: Combine savings and expenses for a true total deduction
+        taxSavings: totalS.toFixed(2), 
         totalDeduction: (totalS + totalExpenses).toFixed(2)
       });
     });
 
-    // 3. Real-time Expense Data (for accurate total deduction)
     const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid));
     const unsubExpenses = onSnapshot(qExpenses, (snapshot) => {
       let expAcc = 0;
@@ -83,7 +81,6 @@ export default function DashboardScreen({ navigation }) {
       setTotalExpenses(expAcc);
     });
 
-    // 4. Real-time Profile & Goal Data
     const unsubSettings = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -97,14 +94,12 @@ export default function DashboardScreen({ navigation }) {
     });
 
     checkTrackingStatus();
-
     return () => { unsubTrips(); unsubSettings(); unsubExpenses(); };
-  }, [user, totalExpenses]); // Rerun when expenses change to update total
+  }, [user, totalExpenses]); 
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await checkTrackingStatus();
-    // Simulate a quick reload for UX
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
@@ -131,7 +126,6 @@ export default function DashboardScreen({ navigation }) {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       
-      {/* HEADER */}
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Welcome back,</Text>
@@ -147,7 +141,7 @@ export default function DashboardScreen({ navigation }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
       >
         
-        {/* STATUS CARD (Dynamic) */}
+        {/* STATUS CARD */}
         <View style={[styles.statusCard, { borderColor: isTrackingActive ? COLORS.success : '#333' }]}>
           <View style={styles.statusRow}>
              <View style={[styles.indicator, { backgroundColor: isTrackingActive ? COLORS.success : COLORS.textSecondary }]} />
@@ -158,7 +152,7 @@ export default function DashboardScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* MONTHLY GOAL SECTION */}
+        {/* MONTHLY GOAL */}
         <View style={styles.goalSection}>
           <View style={styles.goalHeader}>
             <Text style={styles.sectionTitle}>Monthly Goal</Text>
@@ -191,6 +185,27 @@ export default function DashboardScreen({ navigation }) {
           </Text>
         </View>
 
+        {/* BADGES / ACHIEVEMENTS */}
+        <Text style={styles.sectionTitle}>Achievements</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.badgeScroll}>
+          {badges.map((badge) => (
+            <View key={badge.id} style={[styles.badgeCard, !badge.unlocked && styles.badgeLocked]}>
+              <View style={[styles.badgeIcon, { backgroundColor: badge.unlocked ? badge.color : '#333' }]}>
+                <Ionicons name={badge.icon} size={24} color="white" />
+              </View>
+              <Text style={styles.badgeName}>{badge.name}</Text>
+              {badge.unlocked ? (
+                <Text style={styles.badgeDesc}>{badge.desc}</Text>
+              ) : (
+                <View style={styles.lockOverlay}>
+                   <Ionicons name="lock-closed" size={12} color="#888" />
+                   <Text style={styles.lockText}>Locked</Text>
+                </View>
+              )}
+            </View>
+          ))}
+        </ScrollView>
+
         {/* STATS GRID */}
         <View style={styles.statsGrid}>
           <View style={styles.statBox}>
@@ -203,35 +218,37 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </View>
 
-        {/* QUICK ACTIONS */}
+        {/* TAXBOT BUTTON */}
+        <TouchableOpacity 
+           style={[styles.actionBtn, {backgroundColor: '#1E1E1E', borderWidth: 1, borderColor: COLORS.primary, marginTop: 10, marginBottom: 20, width: '100%'}]} 
+           onPress={() => navigation.navigate('Chat')}
+         >
+           <Ionicons name="chatbubble-ellipses" size={28} color={COLORS.primary} />
+           <Text style={[styles.actionText, {color: COLORS.primary}]}>Ask TaxBot AI</Text>
+         </TouchableOpacity>
+        
+        {/* QUICK ACTIONS ROW (Updated for 3 buttons) */}
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actionRow}>
+          {/* 1. Track */}
           <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Track')}>
             <Ionicons name={isTrackingActive ? "stop-circle" : "play-circle"} size={32} color={isTrackingActive ? COLORS.danger : "white"} />
-            <Text style={styles.actionText}>{isTrackingActive ? "Stop Trip" : "Start Trip"}</Text>
+            <Text style={styles.actionText}>{isTrackingActive ? "Stop" : "Start"}</Text>
           </TouchableOpacity>
           
+          {/* 2. Wallet */}
           <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Wallet')}>
             <Ionicons name="receipt" size={32} color="white" />
-            <Text style={styles.actionText}>View Wallet</Text>
+            <Text style={styles.actionText}>Wallet</Text>
+          </TouchableOpacity>
+
+          {/* 3. Documents (NEW) */}
+          <TouchableOpacity style={[styles.actionBtn, {backgroundColor: COLORS.card}]} onPress={() => navigation.navigate('Documents')}>
+            <Ionicons name="folder-open" size={32} color="white" />
+            <Text style={styles.actionText}>Docs</Text>
           </TouchableOpacity>
         </View>
 
-        {/* PASSENGER / SAFETY (Placeholder for Demo) */}
-        <View style={{marginTop: 30}}>
-          <Text style={styles.sectionTitle}>Safety Tools</Text>
-          <View style={styles.passengerCard}>
-            <View style={styles.passengerInfo}>
-              <View style={styles.avatarCircle}>
-                <Ionicons name="shield-checkmark" size={24} color="white" />
-              </View>
-              <View>
-                <Text style={styles.passengerName}>Driver Protection</Text>
-                <Text style={styles.passengerStatus}>Active & Monitoring</Text>
-              </View>
-            </View>
-          </View>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -258,16 +275,24 @@ const styles = StyleSheet.create({
   progressBarFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: 6 },
   goalSubtext: { color: COLORS.textSecondary, fontSize: 12, marginTop: 8 },
   sectionTitle: { color: COLORS.text, fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
+  
+  // Badge Styles
+  badgeScroll: { marginBottom: 30 },
+  badgeCard: { width: 100, height: 120, backgroundColor: COLORS.card, borderRadius: 15, padding: 10, alignItems: 'center', marginRight: 10, borderWidth: 1, borderColor: '#333' },
+  badgeLocked: { opacity: 0.5 },
+  badgeIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+  badgeName: { color: 'white', fontWeight: 'bold', fontSize: 12, textAlign: 'center' },
+  badgeDesc: { color: '#888', fontSize: 9, textAlign: 'center', marginTop: 5 },
+  lockOverlay: { marginTop: 5, flexDirection: 'row', alignItems: 'center' },
+  lockText: { color: '#888', fontSize: 10, marginLeft: 3 },
+
   statsGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
   statBox: { width: '48%', backgroundColor: COLORS.card, padding: 15, borderRadius: 15, borderWidth: 1, borderColor: '#333' },
   statLabel: { color: COLORS.textSecondary, fontSize: 12, marginBottom: 5 },
   statValue: { color: COLORS.text, fontSize: 22, fontWeight: 'bold' },
-  passengerCard: { backgroundColor: COLORS.card, padding: 20, borderRadius: 20, borderWidth: 1, borderColor: '#333', marginBottom: 25 },
-  passengerInfo: { flexDirection: 'row', alignItems: 'center' },
-  avatarCircle: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  passengerName: { color: 'white', fontSize: 18, fontWeight: 'bold' },
-  passengerStatus: { color: COLORS.success, fontSize: 12, fontWeight: '600', marginTop: 2 },
-  actionRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  actionBtn: { width: '48%', flexDirection: 'row', padding: 15, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  actionText: { color: 'white', fontWeight: 'bold', marginLeft: 10 }
+  
+  // Action Row Styles (Updated for 3 items)
+  actionRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 40 },
+  actionBtn: { width: '30%', flexDirection: 'column', padding: 15, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }, // Changed width & direction
+  actionText: { color: 'white', fontWeight: 'bold', marginTop: 5, textAlign: 'center', fontSize: 12 } // Adjusted text style
 });
