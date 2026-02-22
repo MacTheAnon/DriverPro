@@ -2,8 +2,6 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
 export const generateTaxReport = async (trips, totalDeduction, year) => {
-  // 1. Create the HTML Template
-  // This looks like a real document with a header and table
   const html = `
     <html>
       <head>
@@ -37,14 +35,17 @@ export const generateTaxReport = async (trips, totalDeduction, year) => {
             </tr>
           </thead>
           <tbody>
-            ${trips.map(trip => `
+            ${trips.map(trip => {
+              // Handle potential null timestamps or different date formats
+              const tripDate = trip.timestamp?.toDate ? trip.timestamp.toDate() : new Date();
+              return `
               <tr>
-                <td>${new Date(trip.date.seconds * 1000).toLocaleDateString()}</td>
-                <td>${trip.distance.toFixed(2)} mi</td>
+                <td>${tripDate.toLocaleDateString()}</td>
+                <td>${trip.miles || 0} mi</td>
                 <td>${trip.type || 'Business'}</td>
-                <td>$${(trip.distance * 0.67).toFixed(2)}</td>
+                <td>$${(parseFloat(trip.miles || 0) * 0.67).toFixed(2)}</td>
               </tr>
-            `).join('')}
+            `}).join('')}
           </tbody>
         </table>
         
@@ -55,12 +56,8 @@ export const generateTaxReport = async (trips, totalDeduction, year) => {
     </html>
   `;
 
-  // 2. Generate the PDF
   try {
     const { uri } = await Print.printToFileAsync({ html });
-    console.log('PDF Generated at:', uri);
-
-    // 3. Share/Save the File
     await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
   } catch (error) {
     console.error("Error generating PDF:", error);

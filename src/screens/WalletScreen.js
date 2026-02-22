@@ -121,11 +121,27 @@ export default function WalletScreen({ navigation }) {
     ]);
   };
 
-  const handleExportPDF = () => {
-    if (!isPremium) return navigation.navigate('Premium');
-    if (trips.length === 0) return Alert.alert("No Data", "Drive some miles first!");
-    const totalDeduction = trips.reduce((sum, trip) => sum + (parseFloat(trip.miles || 0) * 0.67), 0);
-    generateTaxReport(trips, totalDeduction, "2026");
+ const handleExportPDF = async () => {
+    if (!isPremium) {
+      navigation.navigate('Premium');
+      return;
+    }
+
+    if (trips.length === 0) {
+      Alert.alert("No Data", "Drive some miles first!");
+      return;
+    }
+
+    try {
+      // Ensure miles is treated as a number for the calculation
+      const totalDeduction = trips.reduce((sum, trip) => sum + (parseFloat(trip.miles || 0) * 0.67), 0);
+      
+      // We use 'await' here because PDF generation is an asynchronous task
+      await generateTaxReport(trips, totalDeduction, "2026");
+    } catch (error) {
+      Alert.alert("Export Error", "Something went wrong while creating the PDF.");
+      console.error(error);
+    }
   };
 
   const handleExportCSV = async () => {
