@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
 import { addDoc, collection, doc, getDoc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Dimensions, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -12,32 +13,49 @@ import COLORS from '../styles/colors';
 const { width, height } = Dimensions.get('window');
 const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
 
+// --- 1. BACKGROUND TASK DEFINITION ---
+// This must stay outside the component to work when the app is backgrounded
+TaskManager.defineTask(BACKGROUND_TRACKING_TASK, async ({ data, error }) => {
+  if (error) {
+    console.error("Background Location Error:", error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    try {
+      const existing = await AsyncStorage.getItem('pending_locations');
+      const parsed = existing ? JSON.parse(existing) : [];
+      const newCoords = locations.map(l => ({
+        latitude: l.coords.latitude,
+        longitude: l.coords.longitude,
+        timestamp: l.timestamp
+      }));
+      await AsyncStorage.setItem('pending_locations', JSON.stringify([...parsed, ...newCoords]));
+    } catch (e) {
+      console.error("AsyncStorage Sync Error:", e);
+    }
+  }
+});
+
 // --- HELPERS ---
-function deg2rad(deg) {
-  return deg * (Math.PI / 180);
-}
+function deg2rad(deg) { return deg * (Math.PI / 180); }
 
 function getDistanceFromLatLonInMiles(lat1, lon1, lat2, lon2) {
-  const R = 3958.8; // Radius of the earth in miles
+  const R = 3958.8; 
   const dLat = deg2rad(lat2 - lat1);
   const dLon = deg2rad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-
-// --- FEATURE: Frequent Places Logic (Mock) ---
 const checkFrequentPlaces = (coords) => {
-  // In a real app, you would compare 'coords' against a list of saved Places in Firestore
+  if (!coords) return null;
   const HOME_LAT = 38.9717; 
   const HOME_LON = -94.6174;
   const dist = getDistanceFromLatLonInMiles(coords.latitude, coords.longitude, HOME_LAT, HOME_LON);
-  if (dist < 0.2) return "Home Base";
-  return null;
+  return dist < 0.2 ? "Home Base" : null;
 };
 
 export default function TrackScreen({ navigation }) {
@@ -45,15 +63,13 @@ export default function TrackScreen({ navigation }) {
   const [isTracking, setIsTracking] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   
-  // Trip Stats
   const [distance, setDistance] = useState(0); 
   const [earnings, setEarnings] = useState(0); 
   const [gigEarnings, setGigEarnings] = useState(''); 
   const [netProfit, setNetProfit] = useState(0); 
 
-  // Vehicle & Schedule Stats
   const [totalOdometer, setTotalOdometer] = useState(0);
-  const [smartSchedule, setSmartSchedule] = useState(null); // <--- LOADED FROM DB
+  const [smartSchedule, setSmartSchedule] = useState(null);
   const [showOdometerModal, setShowOdometerModal] = useState(false);
   const [manualOdometerInput, setManualOdometerInput] = useState('');
 
@@ -62,19 +78,18 @@ export default function TrackScreen({ navigation }) {
   const subscriptionRef = useRef(null);
   const user = auth.currentUser;
 
-  // --- 1. Load User Data on Start ---
+  // Load Initial Data
   useEffect(() => {
     if (user) {
       getDoc(doc(db, "users", user.uid)).then((snap) => {
         if (snap.exists()) {
           const data = snap.data();
           setTotalOdometer(parseFloat(data.currentOdometer || 0));
-          setSmartSchedule(data.schedule); // <--- Load Schedule Settings
+          setSmartSchedule(data.schedule);
         }
       });
     }
 
-    // Location Permissions
     (async () => {
       const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
       setIsTracking(hasStarted);
@@ -83,28 +98,31 @@ export default function TrackScreen({ navigation }) {
       let currentLocation = await Location.getCurrentPositionAsync({});
       setLocation(currentLocation);
     })();
+
+    return () => subscriptionRef.current?.remove();
   }, [user]);
 
-  // --- 2. Update Odometer Function ---
   const handleSetOdometer = async () => {
     const val = parseFloat(manualOdometerInput);
-    if (!val || val < 0) return Alert.alert("Invalid Input", "Please enter a valid number.");
+    if (isNaN(val) || val < 0) return Alert.alert("Invalid Input", "Please enter a valid number.");
     
     setTotalOdometer(val);
     setShowOdometerModal(false);
-    
-    // Save to DB
     if (user) {
       await setDoc(doc(db, "users", user.uid), { currentOdometer: val }, { merge: true });
-      Alert.alert("Success", `Odometer set to ${val.toLocaleString()} miles.`);
+      Alert.alert("Success", "Odometer updated.");
     }
   };
 
   const startTrip = async () => {
     try {
+      // Background tracking requires specific permission
       const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
       if (bgStatus !== 'granted') {
-        Alert.alert("Background Access Needed", "Select 'Always Allow' to track in background.");
+        Alert.alert(
+          "Always Allow Required", 
+          "Please go to Settings > Location and select 'Always Allow' so we can track your miles while your phone is locked."
+        );
         return;
       }
 
@@ -117,139 +135,125 @@ export default function TrackScreen({ navigation }) {
 
       await AsyncStorage.removeItem('pending_locations');
 
+      // Start Background Engine
       await Location.startLocationUpdatesAsync(BACKGROUND_TRACKING_TASK, {
         accuracy: Location.Accuracy.BestForNavigation,
-        distanceInterval: 5, 
-        deferredUpdatesInterval: 1000, 
-        showsBackgroundLocationIndicator: true,
+        distanceInterval: 10, 
+        deferredUpdatesInterval: 5000, 
         foregroundService: {
           notificationTitle: "DriverPro Tracking",
-          notificationBody: "Tracking your mileage...",
+          notificationBody: "Mileage tracking is active...",
           notificationColor: COLORS.primary,
         },
       });
 
+      // Start Foreground Watcher for Map Display
       subscriptionRef.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.High, distanceInterval: 5 },
+        { accuracy: Location.Accuracy.High, distanceInterval: 10 },
         (newLocation) => {
           const { latitude, longitude } = newLocation.coords;
-          const newCoordinate = { latitude, longitude };
           setLocation(newLocation);
           
-          setRouteCoordinates((prevRoute) => {
-             const newRoute = [...prevRoute, newCoordinate];
-             if (prevRoute.length > 0) {
-               const lastPoint = prevRoute[prevRoute.length - 1];
-               const milesDelta = getDistanceFromLatLonInMiles(lastPoint.latitude, lastPoint.longitude, latitude, longitude);
-
-               if (milesDelta > 0.002) { // Filter GPS noise
-                 setDistance(d => {
-                    const newDist = d + milesDelta;
-                    // Real-time Profit Calc
-                    const estimatedExpense = newDist * 0.30; 
-                    const currentGross = parseFloat(gigEarnings) || 0;
-                    setNetProfit(currentGross - estimatedExpense);
-                    return newDist;
-                 });
-                 setEarnings(e => e + (milesDelta * 0.67)); 
-               }
-             }
-             return newRoute;
+          setRouteCoordinates((prev) => {
+            if (prev.length > 0) {
+              const last = prev[prev.length - 1];
+              const delta = getDistanceFromLatLonInMiles(last.latitude, last.longitude, latitude, longitude);
+              
+              // Filter GPS jitter (approx 26 feet)
+              if (delta > 0.005) {
+                setDistance(d => {
+                    const newD = d + delta;
+                    setEarnings(newD * 0.67);
+                    const gross = parseFloat(gigEarnings) || 0;
+                    setNetProfit(gross - (newD * 0.30));
+                    return newD;
+                });
+              }
+            }
+            return [...prev, { latitude, longitude }];
           });
 
           mapRef.current?.animateToRegion({ latitude, longitude, latitudeDelta: 0.005, longitudeDelta: 0.005 });
         }
       );
     } catch (error) {
+      console.error(error);
       setIsTracking(false);
     }
   };
 
   const stopTrip = async () => {
     setIsTracking(false);
-    if (subscriptionRef.current) await subscriptionRef.current.remove();
+    subscriptionRef.current?.remove();
     const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
     if (hasStarted) await Location.stopLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
 
     try {
+      // Combine Foreground + Background Data
       const bgData = await AsyncStorage.getItem('pending_locations');
       let finalRoute = [...routeCoordinates];
       if (bgData) finalRoute = [...finalRoute, ...JSON.parse(bgData)]; 
 
-      // --- SMART CLASSIFICATION (LINKED TO SETTINGS) ---
+      // Final Distance Calculation for high accuracy
+      let finalDist = 0;
+      for (let i = 0; i < finalRoute.length - 1; i++) {
+        finalDist += getDistanceFromLatLonInMiles(
+          finalRoute[i].latitude, finalRoute[i].longitude, 
+          finalRoute[i+1].latitude, finalRoute[i+1].longitude
+        );
+      }
+
+      // Smart Schedule Classification
       let type = 'Personal';
-      
-      if (isPremium && smartSchedule && smartSchedule.enabled) {
+      if (isPremium && smartSchedule?.enabled) {
         const now = new Date();
         const currentMins = (now.getHours() * 60) + now.getMinutes();
-        
-        // Parse "09:00" -> 540 minutes
-        const [startH, startM] = smartSchedule.start.split(':').map(Number);
-        const [endH, endM] = smartSchedule.end.split(':').map(Number);
-        const startMins = (startH * 60) + startM;
-        const endMins = (endH * 60) + endM;
-
-        if (currentMins >= startMins && currentMins <= endMins) {
-          type = 'Business';
-        }
+        const [sH, sM] = smartSchedule.start.split(':').map(Number);
+        const [eH, eM] = smartSchedule.end.split(':').map(Number);
+        if (currentMins >= (sH * 60 + sM) && currentMins <= (eH * 60 + eM)) type = 'Business';
       }
 
-      let startName = "Unknown";
-      if (finalRoute.length > 0) {
-        const place = checkFrequentPlaces(finalRoute[0]);
-        if (place) startName = place;
+      const startName = checkFrequentPlaces(finalRoute[0]) || "Unknown";
+
+      if (user) {
+        // Log to Firestore
+        await addDoc(collection(db, "trips"), {
+          userId: user.uid,
+          miles: finalDist.toFixed(2),
+          savings: (finalDist * 0.67).toFixed(2),
+          type,
+          grossEarnings: gigEarnings || "0",
+          netProfit: (parseFloat(gigEarnings || 0) - (finalDist * 0.30)).toFixed(2),
+          startLocation: startName,
+          timestamp: serverTimestamp(),
+          route: finalRoute
+        });
+
+        // Update Vehicle Stats
+        const newOdometer = totalOdometer + finalDist;
+        await updateDoc(doc(db, "users", user.uid), {
+          currentOdometer: newOdometer,    
+          totalTrackedMiles: increment(finalDist) 
+        });
+
+        checkMaintenance(newOdometer, finalDist);
+        setTotalOdometer(newOdometer);
       }
-
-      if (!user) return;
-
-      // Save Trip
-      await addDoc(collection(db, "trips"), {
-        userId: user.uid,
-        miles: distance.toFixed(2),
-        savings: earnings.toFixed(2),
-        type: type, // Uses the Smart Schedule result
-        grossEarnings: gigEarnings || "0",
-        netProfit: netProfit.toFixed(2),
-        startLocation: startName,
-        timestamp: serverTimestamp(),
-        route: finalRoute
-      });
-
-      // --- MAINTENANCE LOGIC ---
-      const newOdometer = totalOdometer + distance;
-      setTotalOdometer(newOdometer);
       
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
-        currentOdometer: newOdometer,    
-        totalTrackedMiles: increment(distance) 
-      });
-
-      checkMaintenance(newOdometer);
-
       await AsyncStorage.removeItem('pending_locations');
-      
-      // Notify User
-      if (type === 'Business') {
-        Alert.alert('Trip Auto-Tagged 🤖', `Logged as Business Trip based on your schedule.\nSavings: $${earnings.toFixed(2)}`);
-      } else {
-        Alert.alert('Trip Saved', `Logged as Personal.\nSavings: $${earnings.toFixed(2)}`);
-      }
+      Alert.alert('Trip Saved', `Logged as ${type}.\nTotal Distance: ${finalDist.toFixed(2)} mi`);
       
     } catch (error) {
       console.error(error);
     }
   };
 
-  // --- 3. The Mechanic Logic ---
-  const checkMaintenance = (odometer) => {
-    // Rotation every 6,000 miles
-    if (Math.floor(odometer / 6000) > Math.floor((odometer - distance) / 6000)) {
-       Alert.alert("Service Alert 🔧", "You've hit a 6,000 mile interval. Time for a Tire Rotation!");
+  const checkMaintenance = (odometer, tripDist) => {
+    if (Math.floor(odometer / 6000) > Math.floor((odometer - tripDist) / 6000)) {
+       Alert.alert("Maintenance 🔧", "Time for a Tire Rotation (6,000 mi interval)!");
     }
-    // Tires every 50,000 miles
-    if (Math.floor(odometer / 50000) > Math.floor((odometer - distance) / 50000)) {
-       Alert.alert("Major Service ⚠️", "You've hit 50,000 miles. Check your Tire Tread and Brakes.");
+    if (Math.floor(odometer / 50000) > Math.floor((odometer - tripDist) / 50000)) {
+       Alert.alert("Major Service ⚠️", "50,000 mile check: Inspect Brakes and Tires.");
     }
   };
 

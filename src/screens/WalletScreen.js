@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,8 +19,7 @@ export default function WalletScreen({ navigation }) {
   const [trips, setTrips] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [totalSavings, setTotalSavings] = useState(0);
-  const [totalExpenses, setTotalExpenses] = useState(0);
+  
   // Expense Form State
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [newExpense, setNewExpense] = useState({ type: 'Gas', amount: '', vendor: '', receiptUri: null });
@@ -29,40 +28,32 @@ export default function WalletScreen({ navigation }) {
   const { isPremium } = useContext(UserContext); 
   const user = auth.currentUser;
 
+  // Real-time Data Listeners
   useEffect(() => {
     if (!user) return;
 
-    // Listen for Trips
     const qTrips = query(collection(db, "trips"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
-      let savingsAcc = 0;
-      const list = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({ id: doc.id, ...data });
-        savingsAcc += parseFloat(data.savings || 0);
-      });
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTrips(list);
-      setTotalSavings(savingsAcc.toFixed(2));
     });
 
-    // Listen for Expenses
     const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubExpenses = onSnapshot(qExpenses, (snapshot) => {
-      let expAcc = 0;
-      const list = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({ id: doc.id, ...data });
-        expAcc += parseFloat(data.amount || 0);
-      });
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setExpenses(list);
-      setTotalExpenses(expAcc.toFixed(2));
       setLoading(false);
     });
 
     return () => { unsubTrips(); unsubExpenses(); };
   }, [user]);
+
+  // Memoized Totals to prevent NaN and improve performance
+  const totalSavings = useMemo(() => 
+    trips.reduce((sum, t) => sum + (parseFloat(t.savings) || 0), 0), [trips]);
+  
+  const totalExpenses = useMemo(() => 
+    expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0), [expenses]);
 
   const handleScanReceipt = async () => {
     Alert.alert("Upload Receipt", "Choose an option", [
@@ -74,15 +65,17 @@ export default function WalletScreen({ navigation }) {
 
   const pickImage = async (useCamera) => {
     let result;
-    if (useCamera) {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') return Alert.alert("Permission denied");
-      result = await ImagePicker.launchCameraAsync({ quality: 0.5 });
-    } else {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') return Alert.alert("Permission denied");
-      result = await ImagePicker.launchImageLibraryAsync({ quality: 0.5 });
+    const permission = useCamera 
+      ? await ImagePicker.requestCameraPermissionsAsync() 
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permission.status !== 'granted') {
+      return Alert.alert("Permission denied", "We need access to your camera/gallery to scan receipts.");
     }
+
+    result = useCamera 
+      ? await ImagePicker.launchCameraAsync({ quality: 0.5 }) 
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.5 });
 
     if (!result.canceled) {
       const uri = result.assets[0].uri;
@@ -120,79 +113,52 @@ export default function WalletScreen({ navigation }) {
     ]);
   };
 
- const handleExportPDF = async () => {
+  const handleExportPDF = async () => {
     if (!isPremium) {
       navigation.navigate('Premium');
       return;
     }
-
-    if (trips.length === 0) {
-      Alert.alert("No Data", "Drive some miles first!");
-      return;
-    }
+    if (trips.length === 0) return Alert.alert("No Data", "Drive some miles first!");
 
     try {
-      // Ensure miles is treated as a number for the calculation
-      const totalDeduction = trips.reduce((sum, trip) => sum + (parseFloat(trip.miles || 0) * 0.67), 0);
-      
-      // We use 'await' here because PDF generation is an asynchronous task
+      // Pass the actual numeric values to the utility
       const currentYear = new Date().getFullYear().toString();
-      await generateTaxReport(trips, totalDeduction, currentYear);
+      await generateTaxReport(trips, totalSavings, currentYear);
     } catch (error) {
       Alert.alert("Export Error", "Something went wrong while creating the PDF.");
-      console.error(error);
     }
   };
 
   const handleExportCSV = async () => {
     if (trips.length === 0 && expenses.length === 0) return Alert.alert("No Data", "Track some trips first!");
-    const exportDate = new Date().toLocaleString();
-    let csv = `DRIVER PRO TAX REPORT\nGenerated: ${exportDate}\n\n--- TRIPS ---\nDate,Miles,Savings\n`;
-    trips.forEach(t => { csv += `${t.timestamp?.toDate().toLocaleDateString()},${t.miles},${t.savings}\n`; });
+    
+    let csv = `DRIVER PRO TAX REPORT\nGenerated: ${new Date().toLocaleString()}\n\n--- TRIPS ---\nDate,Miles,Savings\n`;
+    trips.forEach(t => { 
+        const date = t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString() : 'N/A';
+        csv += `${date},${t.miles},${t.savings}\n`; 
+    });
+    
     csv += `\n--- EXPENSES ---\nDate,Type,Vendor,Amount,Receipt\n`;
-    expenses.forEach(e => { csv += `${e.timestamp?.toDate().toLocaleDateString()},${e.type},${e.vendor},${e.amount},${e.receiptUri ? "Yes" : "No"}\n`; });
+    expenses.forEach(e => { 
+        const date = e.timestamp?.toDate ? e.timestamp.toDate().toLocaleDateString() : 'N/A';
+        csv += `${date},${e.type},${e.vendor},${e.amount},${e.receiptUri ? "Yes" : "No"}\n`; 
+    });
+
     const fileUri = `${FileSystem.documentDirectory}Tax_Report.csv`;
     try {
       await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
-      await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', UTI: 'public.comma-separated-values-text' });
+      await Sharing.shareAsync(fileUri);
     } catch (error) { Alert.alert("Export Failed", error.message); }
   };
 
-  // --- CHART DATA (FIXED FOR CURRENCY DISPLAY) ---
-  const gasTotal = expenses.filter(e => e.type === 'Gas').reduce((sum, e) => sum + e.amount, 0);
-  const repairTotal = expenses.filter(e => e.type === 'Repair').reduce((sum, e) => sum + e.amount, 0);
-  const mealTotal = expenses.filter(e => e.type === 'Meal').reduce((sum, e) => sum + e.amount, 0);
-  const otherTotal = expenses.filter(e => !['Gas','Repair','Meal'].includes(e.type)).reduce((sum, e) => sum + e.amount, 0);
-
+  // Pie Chart Data Calculation
+  const getCategoryTotal = (cat) => expenses.filter(e => e.type === cat).reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+  
   const chartData = [
-    { 
-      name: `Gas ($${gasTotal.toFixed(2)})`, 
-      population: gasTotal || 0.1, 
-      color: '#FF6384', 
-      legendFontColor: '#aaa', 
-      legendFontSize: 12 
-    },
-    { 
-      name: `Repairs ($${repairTotal.toFixed(2)})`, 
-      population: repairTotal || 0.1, 
-      color: '#36A2EB', 
-      legendFontColor: '#aaa', 
-      legendFontSize: 12 
-    },
-    { 
-      name: `Meals ($${mealTotal.toFixed(2)})`, 
-      population: mealTotal || 0.1, 
-      color: '#FFCE56', 
-      legendFontColor: '#aaa', 
-      legendFontSize: 12 
-    },
-    { 
-      name: `Other ($${otherTotal.toFixed(2)})`, 
-      population: otherTotal || 0.1, 
-      color: '#4BC0C0', 
-      legendFontColor: '#aaa', 
-      legendFontSize: 12 
-    },
+    { name: 'Gas', population: getCategoryTotal('Gas') || 0.01, color: '#FF6384', legendFontColor: '#aaa', legendFontSize: 12 },
+    { name: 'Repair', population: getCategoryTotal('Repair') || 0.01, color: '#36A2EB', legendFontColor: '#aaa', legendFontSize: 12 },
+    { name: 'Meal', population: getCategoryTotal('Meal') || 0.01, color: '#FFCE56', legendFontColor: '#aaa', legendFontSize: 12 },
+    { name: 'Other', population: getCategoryTotal('Other') || 0.01, color: '#4BC0C0', legendFontColor: '#aaa', legendFontSize: 12 },
   ];
 
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
@@ -206,7 +172,7 @@ export default function WalletScreen({ navigation }) {
             <Ionicons name="document-text-outline" size={20} color={COLORS.primary} />
             <Text style={styles.exportText}>CSV</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.exportBtn, {backgroundColor: '#2e7d32'}]} onPress={handleExportPDF}>
+          <TouchableOpacity style={[styles.exportBtn, {backgroundColor: COLORS.success}]} onPress={handleExportPDF}>
             <Ionicons name="print-outline" size={20} color="white" />
             <Text style={[styles.exportText, {color: 'white'}]}>PDF</Text>
           </TouchableOpacity>
@@ -217,13 +183,13 @@ export default function WalletScreen({ navigation }) {
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
           <View style={[styles.balanceCard, { width: screenWidth - 40, marginRight: 10 }]}>
             <Text style={styles.balanceLabel}>Total Tax Write-Off</Text>
-            <Text style={styles.balanceValue}>${(parseFloat(totalSavings) + parseFloat(totalExpenses)).toFixed(2)}</Text>
+            <Text style={styles.balanceValue}>${(totalSavings + totalExpenses).toFixed(2)}</Text>
             <Text style={styles.lastExportText}>Combined Mileage + Expenses</Text>
           </View>
           <View style={[styles.balanceCard, { width: screenWidth - 40, backgroundColor: '#2A2A2A' }]}>
-             <Text style={styles.balanceLabel}>Expenses vs Mileage</Text>
-             <Text style={[styles.balanceValue, {fontSize: 24, marginTop: 5}]}>Exp: ${totalExpenses}</Text>
-             <Text style={[styles.balanceValue, {fontSize: 24}]}>Mile: ${totalSavings}</Text>
+             <Text style={styles.balanceLabel}>Breakdown</Text>
+             <Text style={[styles.balanceValue, {fontSize: 22, marginTop: 5}]}>Expenses: ${totalExpenses.toFixed(2)}</Text>
+             <Text style={[styles.balanceValue, {fontSize: 22}]}>Mileage: ${totalSavings.toFixed(2)}</Text>
           </View>
         </ScrollView>
 
@@ -232,8 +198,8 @@ export default function WalletScreen({ navigation }) {
             <Text style={styles.sectionTitle}>Expense Breakdown</Text>
             <PieChart
               data={chartData}
-              width={screenWidth - 40}
-              height={220}
+              width={screenWidth - 60}
+              height={200}
               chartConfig={{ color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})` }}
               accessor={"population"}
               backgroundColor={"transparent"}
@@ -252,19 +218,17 @@ export default function WalletScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {activeTab === 'expenses' && (
+        {activeTab === 'expenses' ? (
           <View>
             <TouchableOpacity style={styles.addBtn} onPress={() => setShowExpenseForm(!showExpenseForm)}>
-              <Ionicons name={showExpenseForm ? "close" : "add"} size={24} color="white" />
+              <Ionicons name={showExpenseForm ? "close" : "add"} size={24} color="black" />
               <Text style={styles.addBtnText}>{showExpenseForm ? "Cancel" : "Add Expense"}</Text>
             </TouchableOpacity>
 
             {showExpenseForm && (
               <View style={styles.formCard}>
-                <Text style={styles.formTitle}>New Expense</Text>
-                
                 <View style={styles.inputRow}>
-                  <TextInput style={[styles.input, {flex: 1}]} placeholder="Vendor (e.g. Shell)" placeholderTextColor="#666" value={newExpense.vendor} onChangeText={t => setNewExpense({...newExpense, vendor: t})} />
+                  <TextInput style={[styles.input, {flex: 1}]} placeholder="Vendor" placeholderTextColor="#666" value={newExpense.vendor} onChangeText={t => setNewExpense({...newExpense, vendor: t})} />
                   <TextInput style={[styles.input, {width: 100, marginLeft: 10}]} placeholder="$0.00" keyboardType="numeric" placeholderTextColor="#666" value={newExpense.amount} onChangeText={t => setNewExpense({...newExpense, amount: t})} />
                 </View>
 
@@ -303,37 +267,36 @@ export default function WalletScreen({ navigation }) {
                 </View>
                 <View style={{ flex: 1, marginLeft: 15 }}>
                   <Text style={styles.itemVendor}>{item.vendor}</Text>
-                  <Text style={styles.itemDate}>{item.timestamp?.toDate().toLocaleDateString()}</Text>
+                  <Text style={styles.itemDate}>{item.timestamp?.toDate?.().toLocaleDateString() || 'Recent'}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.itemAmount}>-${item.amount.toFixed(2)}</Text>
+                  <Text style={styles.itemAmount}>-${parseFloat(item.amount).toFixed(2)}</Text>
                   {item.receiptUri && (
                     <TouchableOpacity onPress={() => setViewReceipt(item.receiptUri)}>
-                      <Ionicons name="receipt-outline" size={16} color="#aaa" style={{marginTop: 4}} />
+                      <Ionicons name="receipt-outline" size={18} color={COLORS.primary} style={{marginTop: 4}} />
                     </TouchableOpacity>
                   )}
                 </View>
               </TouchableOpacity>
             ))}
           </View>
+        ) : (
+          trips.map((item) => (
+            <TouchableOpacity key={item.id} style={styles.itemRow} onLongPress={() => confirmDelete(item.id, 'trips')}>
+              <View style={[styles.iconBox, {backgroundColor: '#2A2A2A'}]}>
+                <Ionicons name="navigate" size={24} color="#4BC0C0" />
+              </View>
+              <View style={{ flex: 1, marginLeft: 15 }}>
+                <Text style={styles.itemVendor}>Business Trip</Text>
+                <Text style={styles.itemDate}>{item.timestamp?.toDate?.().toLocaleDateString() || 'Recent'}</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={[styles.itemAmount, {color: COLORS.success}]}>+${parseFloat(item.savings || 0).toFixed(2)}</Text>
+                <Text style={styles.itemSub}>{parseFloat(item.miles || 0).toFixed(1)} mi</Text>
+              </View>
+            </TouchableOpacity>
+          ))
         )}
-
-        {activeTab === 'trips' && trips.map((item) => (
-          <TouchableOpacity key={item.id} style={styles.itemRow} onLongPress={() => confirmDelete(item.id, 'trips')}>
-            <View style={[styles.iconBox, {backgroundColor: '#2A2A2A'}]}>
-              <Ionicons name="navigate" size={24} color="#4BC0C0" />
-            </View>
-            <View style={{ flex: 1, marginLeft: 15 }}>
-              <Text style={styles.itemVendor}>Business Trip</Text>
-              <Text style={styles.itemDate}>{item.timestamp?.toDate().toLocaleDateString()}</Text>
-            </View>
-            <View>
-              <Text style={[styles.itemAmount, {color: COLORS.success}]}>+${parseFloat(item.savings).toFixed(2)}</Text>
-              <Text style={styles.itemSub}>{parseFloat(item.miles).toFixed(1)} mi</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-
         <View style={{height: 100}} />
       </ScrollView>
 
@@ -345,7 +308,6 @@ export default function WalletScreen({ navigation }) {
           {viewReceipt && <Image source={{ uri: viewReceipt }} style={styles.fullReceipt} resizeMode="contain" />}
         </View>
       </Modal>
-
     </SafeAreaView>
   );
 }
@@ -359,7 +321,7 @@ const styles = StyleSheet.create({
   exportText: { color: COLORS.primary, marginLeft: 5, fontWeight: 'bold' },
   balanceCard: { backgroundColor: COLORS.card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#333', height: 140, justifyContent: 'center' },
   balanceLabel: { color: COLORS.textSecondary, fontSize: 14, marginBottom: 5 },
-  balanceValue: { color: 'white', fontSize: 36, fontWeight: 'bold' },
+  balanceValue: { color: 'white', fontSize: 32, fontWeight: 'bold' },
   lastExportText: { color: COLORS.success, fontSize: 12, marginTop: 5 },
   chartContainer: { alignItems: 'center', marginBottom: 20, backgroundColor: '#1E1E1E', borderRadius: 15, padding: 10 },
   sectionTitle: { color: 'white', fontWeight: 'bold', marginBottom: 10 },
@@ -371,7 +333,6 @@ const styles = StyleSheet.create({
   addBtn: { flexDirection: 'row', backgroundColor: COLORS.primary, padding: 12, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
   addBtnText: { color: 'black', fontWeight: 'bold', marginLeft: 5 },
   formCard: { backgroundColor: '#252525', padding: 15, borderRadius: 12, marginBottom: 20 },
-  formTitle: { color: 'white', fontWeight: 'bold', marginBottom: 15 },
   inputRow: { flexDirection: 'row', marginBottom: 15 },
   input: { backgroundColor: '#121212', color: 'white', padding: 12, borderRadius: 8 },
   typeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
