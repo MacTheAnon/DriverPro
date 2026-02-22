@@ -1,12 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// ---------------------------------------------------------
-// FIX: Use 'legacy' import for copyAsync/documentDirectory
-// ---------------------------------------------------------
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
 const { width } = Dimensions.get('window');
@@ -16,18 +15,61 @@ export default function DocumentsScreen({ navigation }) {
   const [registrationImg, setRegistrationImg] = useState(null);
   const [fullScreenImage, setFullScreenImage] = useState(null);
 
+  const user = auth.currentUser;
+
   useEffect(() => {
     loadImages();
   }, []);
 
+  // FIX: Read from Firestore first (source of truth set by DocumentUploadScreen),
+  // then fall back to AsyncStorage for locally-set images.
   const loadImages = async () => {
     try {
+      // Try Firestore first
+      if (user) {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          const insUri = data.documents?.insuranceLocalUri;
+          const regUri = data.documents?.registrationLocalUri;
+          if (insUri) setInsuranceImg(insUri);
+          if (regUri) setRegistrationImg(regUri);
+          if (insUri || regUri) return; // Firestore had data, no need to check AsyncStorage
+        }
+      }
+      // Fall back to AsyncStorage (for images set directly in this screen)
       const ins = await AsyncStorage.getItem('doc_insurance');
       const reg = await AsyncStorage.getItem('doc_registration');
       if (ins) setInsuranceImg(ins);
       if (reg) setRegistrationImg(reg);
     } catch (e) {
-      console.log("Error loading docs:", e);
+      console.log('Error loading docs:', e);
+    }
+  };
+
+  // Save path to both AsyncStorage and Firestore so both screens stay in sync
+  const saveImagePermanently = async (uri, type) => {
+    try {
+      const fileName = `${type}_${Date.now()}.jpg`;
+      const newPath = FileSystem.documentDirectory + fileName;
+      await FileSystem.copyAsync({ from: uri, to: newPath });
+
+      const key = type === 'insurance' ? 'doc_insurance' : 'doc_registration';
+      await AsyncStorage.setItem(key, newPath);
+
+      // FIX: also persist to Firestore so DocumentUploadScreen and this screen share state
+      if (user) {
+        const firestoreKey = type === 'insurance' ? 'insuranceLocalUri' : 'registrationLocalUri';
+        await setDoc(doc(db, 'users', user.uid), {
+          documents: { [firestoreKey]: newPath }
+        }, { merge: true });
+      }
+
+      if (type === 'insurance') setInsuranceImg(newPath);
+      else setRegistrationImg(newPath);
+    } catch (e) {
+      Alert.alert('Error', 'Could not save document locally.');
+      console.error(e);
     }
   };
 
@@ -80,28 +122,6 @@ export default function DocumentsScreen({ navigation }) {
     }
   };
 
-  const saveImagePermanently = async (uri, type) => {
-    try {
-      const fileName = `${type}_${Date.now()}.jpg`; 
-      const newPath = FileSystem.documentDirectory + fileName;
-
-      // This works now because we imported from 'legacy'
-      await FileSystem.copyAsync({ from: uri, to: newPath });
-
-      // Save Path
-      const key = type === 'insurance' ? 'doc_insurance' : 'doc_registration';
-      await AsyncStorage.setItem(key, newPath);
-
-      // Update State
-      if (type === 'insurance') setInsuranceImg(newPath);
-      else setRegistrationImg(newPath);
-
-    } catch (e) {
-      Alert.alert("Error", "Could not save document locally.");
-      console.error(e);
-    }
-  };
-
   const handleDelete = async (type) => {
     Alert.alert("Delete Document", "Are you sure?", [
       { text: "Cancel", style: "cancel" },
@@ -111,6 +131,13 @@ export default function DocumentsScreen({ navigation }) {
         onPress: async () => {
           const key = type === 'insurance' ? 'doc_insurance' : 'doc_registration';
           await AsyncStorage.removeItem(key);
+          // FIX: also clear from Firestore so DocumentUploadScreen stays in sync
+          if (user) {
+            const firestoreKey = type === 'insurance' ? 'insuranceLocalUri' : 'registrationLocalUri';
+            await setDoc(doc(db, 'users', user.uid), {
+              documents: { [firestoreKey]: null }
+            }, { merge: true });
+          }
           if (type === 'insurance') setInsuranceImg(null);
           else setRegistrationImg(null);
         }

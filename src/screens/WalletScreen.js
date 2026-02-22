@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
@@ -36,6 +36,7 @@ export default function WalletScreen({ navigation }) {
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTrips(list);
+      setLoading(false); // FIX: ensure loading clears even if user has no expenses
     });
 
     const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
@@ -287,7 +288,7 @@ export default function WalletScreen({ navigation }) {
                 <Ionicons name="navigate" size={24} color="#4BC0C0" />
               </View>
               <View style={{ flex: 1, marginLeft: 15 }}>
-                <Text style={styles.itemVendor}>Business Trip</Text>
+                <Text style={styles.itemVendor}>{item.type || 'Business'} Trip</Text>
                 <Text style={styles.itemDate}>{item.timestamp?.toDate?.().toLocaleDateString() || 'Recent'}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>

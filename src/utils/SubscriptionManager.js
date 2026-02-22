@@ -16,6 +16,11 @@ class SubscriptionManager {
       if (Platform.OS === 'ios') {
         await Purchases.configure({ apiKey: API_KEYS.apple });
       } else {
+        // FIX: fail loudly if Android key is still a placeholder instead of silently misconfiguring
+        if (API_KEYS.google.includes('YOUR_REVENUECAT_KEY_HERE')) {
+          console.error("❌ SubscriptionManager: Android RevenueCat API key is not set. Replace 'goog_YOUR_REVENUECAT_KEY_HERE' in SubscriptionManager.js with your real key from the RevenueCat dashboard.");
+          return;
+        }
         await Purchases.configure({ apiKey: API_KEYS.google });
       }
       console.log("💳 RevenueCat Configured");

@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-// FIXED: Use legacy import to solve SDK 54 deprecation error
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
@@ -12,6 +11,46 @@ import { auth, db } from '../firebaseConfig';
 import { usePermissions } from '../hooks/usePermissions';
 import COLORS from '../styles/colors';
 
+// FIX: Defined outside component so React doesn't recreate/remount on every render
+const UploadCard = ({ title, uri, type, onPickImage, onPickDocument, onClear }) => {
+  const isPdf = uri ? uri.toLowerCase().includes('.pdf') : false;
+  return (
+    <View style={styles.cardContainer}>
+      <Text style={styles.cardTitle}>{title}</Text>
+      {uri ? (
+        <TouchableOpacity style={styles.previewBox} onPress={onClear}>
+          {isPdf ? (
+            <View style={styles.pdfContainer}>
+              <Ionicons name="document-text" size={40} color={COLORS.textSecondary} />
+              <Text style={{ color: COLORS.textSecondary, marginTop: 5 }}>Document Ready</Text>
+            </View>
+          ) : (
+            <Image source={{ uri }} style={styles.previewImage} />
+          )}
+          <View style={styles.removeBadge}>
+            <Ionicons name="close" size={16} color="white" />
+          </View>
+          <View style={styles.checkmark}>
+            <Ionicons name="checkmark-circle" size={24} color={COLORS.success} />
+          </View>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.selectionRow}>
+          <TouchableOpacity style={styles.optionBtn} onPress={onPickImage}>
+            <Ionicons name="camera" size={28} color={COLORS.primary} />
+            <Text style={styles.optionText}>Scan</Text>
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.optionBtn} onPress={onPickDocument}>
+            <Ionicons name="document-text" size={28} color={COLORS.textSecondary} />
+            <Text style={styles.optionText}>PDF/File</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+};
+
 export default function DocumentUploadScreen({ navigation }) {
   const [insuranceImage, setInsuranceImage] = useState(null);
   const [registrationImage, setRegistrationImage] = useState(null);
@@ -19,19 +58,15 @@ export default function DocumentUploadScreen({ navigation }) {
 
   const { requestCamera } = usePermissions();
 
-  // 1. Pick Photo (Camera)
   const pickImage = async (type) => {
     const hasPermission = await requestCamera();
     if (!hasPermission) return;
-
     try {
       const result = await ImagePicker.launchCameraAsync({
-        // FIXED: Use simple string 'images' to prevent "undefined" crash
-        mediaTypes: 'images', 
+        mediaTypes: 'images',
         allowsEditing: true,
-        quality: 0.7, 
+        quality: 0.7,
       });
-
       if (!result.canceled) {
         if (type === 'insurance') setInsuranceImage(result.assets[0].uri);
         if (type === 'registration') setRegistrationImage(result.assets[0].uri);
@@ -41,14 +76,12 @@ export default function DocumentUploadScreen({ navigation }) {
     }
   };
 
-  // 2. Pick Document (File)
   const pickDocument = async (type) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*', 
+        type: '*/*',
         copyToCacheDirectory: true,
       });
-
       if (!result.canceled) {
         if (type === 'insurance') setInsuranceImage(result.assets[0].uri);
         if (type === 'registration') setRegistrationImage(result.assets[0].uri);
@@ -58,22 +91,16 @@ export default function DocumentUploadScreen({ navigation }) {
     }
   };
 
-  // --- LOCAL STORAGE LOGIC ---
-  const saveToDevice = async (uri, fileName) => {
+  const saveToDevice = async (uri, baseFileName) => {
     try {
-      // Define a permanent location in the app's document folder
-      const newPath = FileSystem.documentDirectory + fileName;
-      
-      // Copy the file from the temporary cache to permanent storage
-      // Uses the legacy module to avoid deprecation warnings/errors
-      await FileSystem.copyAsync({
-        from: uri,
-        to: newPath
-      });
-
+      // FIX: preserve actual file extension instead of hardcoding .jpg (PDFs were saved as .jpg)
+      const uriLower = uri.toLowerCase();
+      const ext = uriLower.includes('.pdf') ? '.pdf' : '.jpg';
+      const newPath = FileSystem.documentDirectory + baseFileName + ext;
+      await FileSystem.copyAsync({ from: uri, to: newPath });
       return newPath;
     } catch (e) {
-      console.error("Local Save Error:", e);
+      console.error('Local Save Error:', e);
       throw new Error(`Could not save file: ${e.message}`);
     }
   };
@@ -83,93 +110,37 @@ export default function DocumentUploadScreen({ navigation }) {
       Alert.alert('Missing Documents', 'Please upload both Insurance and Registration to continue.');
       return;
     }
-
-    setIsSaving(true);
     const user = auth.currentUser;
-    
     if (!user) {
-        Alert.alert("Error", "You must be logged in.");
-        setIsSaving(false);
-        return;
+      Alert.alert('Error', 'You must be logged in.');
+      return;
     }
 
+    setIsSaving(true);
     try {
-      // 1. Save Insurance Locally
-      const insPath = await saveToDevice(
-        insuranceImage, 
-        `insurance_${user.uid}_${Date.now()}.jpg`
-      );
+      const insPath = await saveToDevice(insuranceImage, `insurance_${user.uid}_${Date.now()}`);
+      const regPath = await saveToDevice(registrationImage, `registration_${user.uid}_${Date.now()}`);
 
-      // 2. Save Registration Locally
-      const regPath = await saveToDevice(
-        registrationImage, 
-        `registration_${user.uid}_${Date.now()}.jpg`
-      );
-
-      // 3. Save "Reference" to Firestore
-      await setDoc(doc(db, "users", user.uid), {
+      await setDoc(doc(db, 'users', user.uid), {
         documents: {
           insuranceLocalUri: insPath,
           registrationLocalUri: regPath,
-          storageType: 'local', 
-          uploadedAt: new Date().toISOString()
+          storageType: 'local',
+          uploadedAt: new Date().toISOString(),
         },
-        documentStatus: 'Verified'
+        documentStatus: 'Verified',
       }, { merge: true });
 
-      setIsSaving(false);
       Alert.alert('Success', 'Documents saved to device securely.', [
-        { text: 'Finish Setup', onPress: () => navigation.replace('Dashboard') }
+        { text: 'Finish Setup', onPress: () => navigation.replace('Dashboard') },
       ]);
-
     } catch (error) {
       console.error(error);
-      setIsSaving(false);
       Alert.alert('Save Failed', `Could not save documents: ${error.message}`);
+    } finally {
+      // FIX: always reset saving state, even if an error was thrown mid-save
+      setIsSaving(false);
     }
-  };
-
-  const UploadCard = ({ title, uri, type }) => {
-    const isPdf = uri ? uri.toLowerCase().includes('.pdf') : false;
-
-    return (
-      <View style={styles.cardContainer}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        
-        {uri ? (
-          <TouchableOpacity style={styles.previewBox} onPress={() => type === 'insurance' ? setInsuranceImage(null) : setRegistrationImage(null)}>
-            {isPdf ? (
-              <View style={styles.pdfContainer}>
-                 <Ionicons name="document-text" size={40} color={COLORS.textSecondary} />
-                 <Text style={{color: COLORS.textSecondary, marginTop: 5}}>Document Ready</Text>
-              </View>
-            ) : (
-              <Image source={{ uri: uri }} style={styles.previewImage} />
-            )}
-            <View style={styles.removeBadge}>
-               <Ionicons name="close" size={16} color="white" />
-            </View>
-            <View style={styles.checkmark}>
-              <Ionicons name="checkmark-circle" size={24} color={COLORS.success} />
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.selectionRow}>
-            <TouchableOpacity style={styles.optionBtn} onPress={() => pickImage(type)}>
-               <Ionicons name="camera" size={28} color={COLORS.primary} />
-               <Text style={styles.optionText}>Scan</Text>
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity style={styles.optionBtn} onPress={() => pickDocument(type)}>
-               <Ionicons name="document-text" size={28} color={COLORS.textSecondary} />
-               <Text style={styles.optionText}>PDF/File</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    );
   };
 
   return (
@@ -180,20 +151,30 @@ export default function DocumentUploadScreen({ navigation }) {
         <Text style={styles.subtitle}>Save your documents securely on this device.</Text>
       </View>
       <View style={styles.content}>
-        <UploadCard title="Proof of Insurance" uri={insuranceImage} type="insurance" />
-        <UploadCard title="Vehicle Registration" uri={registrationImage} type="registration" />
+        <UploadCard
+          title="Proof of Insurance"
+          uri={insuranceImage}
+          type="insurance"
+          onPickImage={() => pickImage('insurance')}
+          onPickDocument={() => pickDocument('insurance')}
+          onClear={() => setInsuranceImage(null)}
+        />
+        <UploadCard
+          title="Vehicle Registration"
+          uri={registrationImage}
+          type="registration"
+          onPickImage={() => pickImage('registration')}
+          onPickDocument={() => pickDocument('registration')}
+          onClear={() => setRegistrationImage(null)}
+        />
       </View>
       <View style={styles.footer}>
-        <TouchableOpacity 
-          style={[styles.submitButton, isSaving && styles.disabledButton]} 
+        <TouchableOpacity
+          style={[styles.submitButton, isSaving && styles.disabledButton]}
           onPress={handleSubmit}
           disabled={isSaving}
         >
-          {isSaving ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <Text style={styles.submitText}>Save & Continue</Text>
-          )}
+          {isSaving ? <ActivityIndicator color="white" /> : <Text style={styles.submitText}>Save & Continue</Text>}
         </TouchableOpacity>
       </View>
     </SafeAreaView>

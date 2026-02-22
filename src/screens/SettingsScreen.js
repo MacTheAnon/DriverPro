@@ -32,6 +32,11 @@ export default function SettingsScreen({ navigation }) {
   const [workStart, setWorkStart] = useState('09:00');
   const [workEnd, setWorkEnd] = useState('17:00');
 
+  // Home Base
+  const [homeLat, setHomeLat] = useState(null);
+  const [homeLon, setHomeLon] = useState(null);
+  const [settingHome, setSettingHome] = useState(false);
+
   useEffect(() => {
     const fetchProfile = async () => {
       if (!user) return;
@@ -52,6 +57,9 @@ export default function SettingsScreen({ navigation }) {
           setVehicleYear(data.vehicleYear || '');
           
           setIsGeofenceEnabled(data.geofenceActive || false);
+
+          if (data.homeLat) setHomeLat(data.homeLat);
+          if (data.homeLon) setHomeLon(data.homeLon);
 
           if (data.schedule) {
             setAutoTagEnabled(data.schedule.enabled);
@@ -125,6 +133,47 @@ export default function SettingsScreen({ navigation }) {
       await Location.stopGeofencingAsync(GEOFENCE_TASK);
       await setDoc(doc(db, "users", user.uid), { geofenceActive: false }, { merge: true });
     }
+  };
+
+  const handleSetHomeLocation = async () => {
+    if (!isPremium) {
+      navigation.navigate('Premium');
+      return;
+    }
+
+    Alert.alert(
+      "Set Home Base 🏠",
+      "This will save your current GPS location as Home Base. Make sure you're at home before confirming.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Set as Home",
+          onPress: async () => {
+            setSettingHome(true);
+            try {
+              const { status } = await Location.requestForegroundPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert("Permission Needed", "Location access is required to set your home base.");
+                return;
+              }
+              const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+              const lat = location.coords.latitude;
+              const lon = location.coords.longitude;
+
+              await setDoc(doc(db, "users", user.uid), { homeLat: lat, homeLon: lon }, { merge: true });
+              setHomeLat(lat);
+              setHomeLon(lon);
+              Alert.alert("Home Base Saved ✅", `Location set.\n(${lat.toFixed(4)}, ${lon.toFixed(4)})`);
+            } catch (e) {
+              Alert.alert("Error", "Could not get your location. Please try again.");
+              console.error(e);
+            } finally {
+              setSettingHome(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleSave = async () => {
@@ -245,6 +294,22 @@ export default function SettingsScreen({ navigation }) {
               <Switch value={isGeofenceEnabled} onValueChange={toggleGeofence} trackColor={{ false: "#767577", true: COLORS.primary }} />
             </View>
 
+            {/* Set Home Location Button */}
+            <TouchableOpacity
+              style={[styles.homeBtn, settingHome && { opacity: 0.6 }]}
+              onPress={handleSetHomeLocation}
+              disabled={settingHome}
+            >
+              <Ionicons name="home" size={16} color={homeLat ? COLORS.success : COLORS.textSecondary} style={{ marginRight: 8 }} />
+              {settingHome ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <Text style={[styles.homeBtnText, homeLat && { color: COLORS.success }]}>
+                  {homeLat ? `Home Set  (${homeLat.toFixed(3)}, ${homeLon.toFixed(3)})` : 'Tap to Set Home Location'}
+                </Text>
+              )}
+            </TouchableOpacity>
+
             <View style={styles.divider} />
 
             {/* Schedule Row */}
@@ -316,6 +381,8 @@ const styles = StyleSheet.create({
   subText: { color: COLORS.textSecondary, fontSize: 11, marginTop: 2 },
   timeInput: { backgroundColor: '#252525', color: 'white', padding: 10, borderRadius: 8, width: 80, textAlign: 'center', fontWeight: 'bold' },
   divider: { height: 1, backgroundColor: '#333', marginVertical: 15 },
+  homeBtn: { flexDirection: 'row', alignItems: 'center', marginTop: 12, backgroundColor: '#252525', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#333' },
+  homeBtnText: { color: COLORS.textSecondary, fontSize: 13, fontWeight: '600' },
   logoutBtn: { marginBottom: 20, alignItems: 'center' },
   logoutText: { color: COLORS.textSecondary, fontWeight: 'bold', fontSize: 16 },
   deleteBtn: { alignItems: 'center', marginBottom: 20 },

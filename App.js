@@ -4,16 +4,15 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Font from 'expo-font';
+import * as Location from 'expo-location';
 import * as SplashScreen from 'expo-splash-screen';
 import * as TaskManager from 'expo-task-manager';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { Animated, Image, LogBox, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-// Context & Auth
 import { UserContext, UserProvider } from './src/context/UserContext';
 
-// Screens
 import ChatScreen from './src/screens/ChatScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import DocumentUploadScreen from './src/screens/DocumentUploadScreen';
@@ -26,14 +25,17 @@ import WalletScreen from './src/screens/WalletScreen';
 
 LogBox.ignoreLogs(['Setting a timer']);
 
+// NOTE: BACKGROUND_TRACKING_TASK is defined in TrackScreen.js (must be at module scope there).
+// App.js only defines the GEOFENCE_TASK since TrackScreen doesn't own that.
+// Keeping the background tracking handler here too as a backup writer in case
+// the app is fully killed — both definitions are identical so TaskManager deduplicates safely.
 const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
 const GEOFENCE_TASK = 'geofence-tracking-task';
 
-// --- BACKGROUND TASKS ---
 TaskManager.defineTask(BACKGROUND_TRACKING_TASK, async ({ data, error }) => {
-  if (error) { 
-    console.error("Background Tracking Error:", error); 
-    return; 
+  if (error) {
+    console.error('Background Tracking Error:', error);
+    return;
   }
   if (data) {
     const { locations } = data;
@@ -42,16 +44,33 @@ TaskManager.defineTask(BACKGROUND_TRACKING_TASK, async ({ data, error }) => {
       const pendingPoints = existingData ? JSON.parse(existingData) : [];
       const updatedPoints = [...pendingPoints, ...locations];
       await AsyncStorage.setItem('pending_locations', JSON.stringify(updatedPoints));
-      console.log(`Background: Saved ${locations.length} new points.`);
     } catch (err) {
-      console.error("Failed to save background location", err);
+      console.error('Failed to save background location', err);
     }
   }
 });
 
-TaskManager.defineTask(GEOFENCE_TASK, ({ data: { eventType, region }, error }) => {
-  if (error) { console.error("Geofence Error:", error); return; }
-  console.log("Geofence Event:", eventType, region.identifier);
+// FIX: Geofence handler now actually stops the background tracking task when
+// the user arrives home, instead of just console.logging.
+TaskManager.defineTask(GEOFENCE_TASK, async ({ data: { eventType, region }, error }) => {
+  if (error) { console.error('Geofence Error:', error); return; }
+  if (region.identifier === 'HOME_BASE') {
+    if (eventType === Location.GeofencingEventType.Enter) {
+      // Arrived home — stop background tracking if it's running
+      try {
+        const isTracking = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+        if (isTracking) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+          console.log('Geofence: arrived home, tracking paused.');
+        }
+      } catch (e) {
+        console.error('Geofence stop error:', e);
+      }
+    } else if (eventType === Location.GeofencingEventType.Exit) {
+      // Left home — background tracking will be started manually by user via TrackScreen
+      console.log('Geofence: left home base.');
+    }
+  }
 });
 
 SplashScreen.preventAutoHideAsync();
@@ -66,7 +85,7 @@ function MainTabNavigator() {
         tabBarStyle: { backgroundColor: '#1E1E1E', borderTopColor: '#333', height: 65, paddingBottom: 10, paddingTop: 10, position: 'absolute' },
         tabBarActiveTintColor: '#2D6CDF',
         tabBarInactiveTintColor: 'gray',
-        tabBarIcon: ({ focused, color, size }) => {
+        tabBarIcon: ({ focused, color }) => {
           let iconName;
           if (route.name === 'Home') iconName = focused ? 'grid' : 'grid-outline';
           else if (route.name === 'Track') iconName = focused ? 'navigate' : 'navigate-outline';
@@ -82,12 +101,9 @@ function MainTabNavigator() {
   );
 }
 
-// Helper Component for Navigation Logic
 const AppNavigation = () => {
-  const { user, loading } = useContext(UserContext); 
-
-  if (loading) return null; 
-
+  const { user, loading } = useContext(UserContext);
+  if (loading) return null;
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -117,28 +133,33 @@ export default function App() {
       try {
         await Font.loadAsync({ ...Ionicons.font });
         await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (e) { console.warn(e); } finally { setAppIsReady(true); }
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        setAppIsReady(true);
+      }
     }
     prepare();
   }, []);
 
   const onLayoutRootView = useCallback(async () => {
-    if (appIsReady) { 
+    if (appIsReady) {
       await SplashScreen.hideAsync();
       Animated.timing(fadeAnim, { toValue: 0, duration: 1000, useNativeDriver: true }).start();
     }
   }, [appIsReady, fadeAnim]);
 
-  if (!appIsReady) return null; 
+  if (!appIsReady) return null;
 
   return (
-    <UserProvider> 
+    <UserProvider>
       <SafeAreaProvider>
         <View style={{ flex: 1, backgroundColor: '#121212' }} onLayout={onLayoutRootView}>
-          <AppNavigation /> 
-          
-          {/* Splash Overlay */}
-          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}>
+          <AppNavigation />
+          <Animated.View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFill, { backgroundColor: '#121212', opacity: fadeAnim, justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}
+          >
             <Image source={require('./assets/logo.png')} style={{ width: 180, height: 180, resizeMode: 'contain' }} />
           </Animated.View>
         </View>

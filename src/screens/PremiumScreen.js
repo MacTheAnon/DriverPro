@@ -14,51 +14,60 @@ const PremiumScreen = ({ navigation }) => {
   const [purchaseLoading, setPurchaseLoading] = useState(false); // Spinner for the actual purchase
 
   useEffect(() => {
-    if (!isPremium) {
-      const loadOffer = async () => {
-        setLoading(true);
+    const loadOffer = async () => {
+      setLoading(true);
+      if (!isPremium) {
         const packs = await SubscriptionManager.getOfferings();
         setPackages(packs);
         if (packs.length > 0) {
           const annual = packs.find(p => p.packageType === 'ANNUAL');
           setSelectedPackage(annual || packs[0]);
         }
-        setLoading(false);
-      };
-      loadOffer();
-    }
+      }
+      // FIX: always set loading false whether isPremium or not
+      setLoading(false);
+    };
+    loadOffer();
   }, [isPremium]);
 
   const handleSubscribe = async () => {
-    if (!selectedPackage) return Alert.alert("Error", "Please select a plan.");
-    
-    setPurchaseLoading(true); // START LOADING
-    const success = await SubscriptionManager.purchase(selectedPackage);
-    
-    if (success) {
-      await refreshPremiumStatus();
-      setPurchaseLoading(false); // STOP LOADING
-      Alert.alert(
-        "Welcome Aboard! 🚀", 
-        "Your Pro features are now active.",
-        [{ text: "Let's Go", onPress: () => navigation.navigate('Dashboard')}]
-      );
-    } else {
-      setPurchaseLoading(false); // STOP LOADING IF FAILED
+    if (!selectedPackage) return Alert.alert('Error', 'Please select a plan.');
+    setPurchaseLoading(true);
+    try {
+      const success = await SubscriptionManager.purchase(selectedPackage);
+      if (success) {
+        await refreshPremiumStatus();
+        Alert.alert(
+          'Welcome Aboard! 🚀',
+          'Your Pro features are now active.',
+          [{ text: "Let's Go", onPress: () => navigation.navigate('Dashboard', { screen: 'Home' }) }]
+        );
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      // FIX: always stop spinner regardless of outcome
+      setPurchaseLoading(false);
     }
   };
 
   const handleRestore = async () => {
-    setPurchaseLoading(true); // START LOADING
-    const success = await SubscriptionManager.restore();
-    if (success) {
-      await refreshPremiumStatus();
-      setPurchaseLoading(false); // STOP LOADING
-      Alert.alert("Restored", "Your Pro status is back!");
-      navigation.navigate('Dashboard');
-    } else {
-      setPurchaseLoading(false); // STOP LOADING
-      Alert.alert("Notice", "No active subscription found.");
+    setPurchaseLoading(true);
+    try {
+      const success = await SubscriptionManager.restore();
+      if (success) {
+        await refreshPremiumStatus();
+        Alert.alert('Restored', 'Your Pro status is back!');
+        // FIX: navigate with explicit screen so it always lands on Home tab
+        navigation.navigate('Dashboard', { screen: 'Home' });
+      } else {
+        Alert.alert('Notice', 'No active subscription found.');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not restore purchases. Please try again.');
+    } finally {
+      // FIX: always stop spinner
+      setPurchaseLoading(false);
     }
   };
 

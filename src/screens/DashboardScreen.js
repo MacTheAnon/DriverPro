@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import { collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../firebaseConfig';
@@ -23,6 +23,10 @@ export default function DashboardScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
 
   const user = auth.currentUser;
+
+  // FIX: Use a ref for totalExpenses so the trips snapshot can always read the latest
+  // value without needing to be in the dependency array (which caused infinite re-subscribes)
+  const totalExpensesRef = useRef(0);
 
   // --- BADGES LOGIC ---
   const badges = [
@@ -59,7 +63,9 @@ export default function DashboardScreen({ navigation }) {
         const miles = parseFloat(data.miles || 0);
         const savings = parseFloat(data.savings || 0);
         totalS += savings;
-        if (data.timestamp?.toDate() >= startOfDay) {
+        // FIX: guard against null timestamp before calling toDate()
+        const tripDate = data.timestamp?.toDate?.();
+        if (tripDate && tripDate >= startOfDay) {
           todayM += miles;
         }
       });
@@ -67,7 +73,8 @@ export default function DashboardScreen({ navigation }) {
       setStats({ 
         milesToday: todayM.toFixed(1), 
         taxSavings: totalS.toFixed(2), 
-        totalDeduction: (totalS + totalExpenses).toFixed(2)
+        // FIX: read from ref so we always have latest expenses without needing it in dep array
+        totalDeduction: (totalS + totalExpensesRef.current).toFixed(2)
       });
     });
 
@@ -78,13 +85,15 @@ export default function DashboardScreen({ navigation }) {
         const data = doc.data();
         expAcc += parseFloat(data.amount || 0);
       });
+      // FIX: update both state (for display) and ref (so trips snapshot closure reads latest value)
+      totalExpensesRef.current = expAcc;
       setTotalExpenses(expAcc);
     });
 
     const unsubSettings = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setDisplayName(data.displayName);
+        setDisplayName(data.displayName || ''); // FIX: default to '' to prevent undefined render
         setBusinessName(data.businessName || 'Independent Contractor');
         if (data.monthlyGoal) {
           setMonthlyGoal(data.monthlyGoal);
@@ -95,7 +104,7 @@ export default function DashboardScreen({ navigation }) {
 
     checkTrackingStatus();
     return () => { unsubTrips(); unsubSettings(); unsubExpenses(); };
-  }, [user, totalExpenses]); 
+  }, [user]); // FIX: removed totalExpenses from dep array — was causing infinite re-subscribe loop
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
