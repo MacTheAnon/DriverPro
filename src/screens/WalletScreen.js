@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
@@ -22,7 +24,7 @@ export default function WalletScreen({ navigation }) {
   
   // Expense Form State
   const [showExpenseForm, setShowExpenseForm] = useState(false);
-  const [newExpense, setNewExpense] = useState({ type: 'Gas', amount: '', vendor: '', receiptUri: null });
+  const [newExpense, setNewExpense] = useState({ type: 'Gas', amount: '', vendor: '', receiptUri: null, fileName: null });
   const [viewReceipt, setViewReceipt] = useState(null); 
 
   const { isPremium } = useContext(UserContext); 
@@ -36,7 +38,7 @@ export default function WalletScreen({ navigation }) {
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTrips(list);
-      setLoading(false); // FIX: ensure loading clears even if user has no expenses
+      setLoading(false);
     });
 
     const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
@@ -49,17 +51,19 @@ export default function WalletScreen({ navigation }) {
     return () => { unsubTrips(); unsubExpenses(); };
   }, [user]);
 
-  // Memoized Totals to prevent NaN and improve performance
+  // Memoized Totals
   const totalSavings = useMemo(() => 
     trips.reduce((sum, t) => sum + (parseFloat(t.savings) || 0), 0), [trips]);
   
   const totalExpenses = useMemo(() => 
     expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0), [expenses]);
 
+  // Receipt/File Upload
   const handleScanReceipt = async () => {
     Alert.alert("Upload Receipt", "Choose an option", [
       { text: "Camera", onPress: () => pickImage(true) },
       { text: "Gallery", onPress: () => pickImage(false) },
+      { text: "Files", onPress: pickFile },
       { text: "Cancel", style: "cancel" }
     ]);
   };
@@ -84,27 +88,72 @@ export default function WalletScreen({ navigation }) {
       const newPath = FileSystem.documentDirectory + fileName;
       try {
         await FileSystem.copyAsync({ from: uri, to: newPath });
-        setNewExpense({ ...newExpense, receiptUri: newPath });
+        setNewExpense({ ...newExpense, receiptUri: newPath, fileName });
       } catch (e) {
         Alert.alert("Error", "Could not save receipt image.");
       }
     }
   };
 
-  const addExpense = async () => {
-    if (!newExpense.amount || !newExpense.vendor) return Alert.alert("Missing Info", "Enter amount and vendor.");
+  const pickFile = async () => {
     try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (result.type === 'success') {
+        setNewExpense({ ...newExpense, receiptUri: result.uri, fileName: result.name });
+      }
+    } catch (error) {
+      Alert.alert("Error", "Could not select file.");
+    }
+  };
+
+  const addExpense = async () => {
+    if (!newExpense.vendor.trim()) return Alert.alert("Missing Info", "Please enter a vendor.");
+
+    const amount = parseFloat(newExpense.amount);
+    if (isNaN(amount) || amount <= 0) return Alert.alert("Invalid Amount", "Please enter a valid number greater than 0.");
+
+    setLoading(true);
+
+    try {
+      let finalReceiptUri = null;
+
+      if (newExpense.receiptUri) {
+        try {
+          const response = await fetch(newExpense.receiptUri);
+          const blob = await response.blob();
+
+          const storage = getStorage();
+          const ext = newExpense.fileName?.split('.').pop() || 'dat';
+          const storageRef = ref(storage, `receipts/${user.uid}/${Date.now()}.${ext}`);
+
+          await uploadBytes(storageRef, blob);
+          finalReceiptUri = await getDownloadURL(storageRef);
+        } catch (uploadError) {
+          console.error("Receipt upload failed:", uploadError);
+          Alert.alert("Upload Error", "Failed to upload receipt. Please try again.");
+          return;
+        }
+      }
+
       await addDoc(collection(db, "expenses"), {
         userId: user.uid,
         type: newExpense.type,
-        amount: parseFloat(newExpense.amount),
-        vendor: newExpense.vendor,
-        receiptUri: newExpense.receiptUri || null,
-        timestamp: new Date()
+        amount: amount,
+        vendor: newExpense.vendor.trim(),
+        receiptUri: finalReceiptUri,
+        timestamp: new Date(),
+        fileName: newExpense.fileName
       });
+
+      setNewExpense({ type: "Gas", amount: "", vendor: "", receiptUri: null, fileName: null });
       setShowExpenseForm(false);
-      setNewExpense({ type: 'Gas', amount: '', vendor: '', receiptUri: null });
-    } catch (e) { Alert.alert("Error", "Could not save expense."); }
+
+    } catch (e) {
+      console.error("Failed to save expense:", e);
+      Alert.alert("Error", "Could not save expense. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const confirmDelete = (id, collectionName) => {
@@ -120,9 +169,7 @@ export default function WalletScreen({ navigation }) {
       return;
     }
     if (trips.length === 0) return Alert.alert("No Data", "Drive some miles first!");
-
     try {
-      // Pass the actual numeric values to the utility
       const currentYear = new Date().getFullYear().toString();
       await generateTaxReport(trips, totalSavings, currentYear);
     } catch (error) {
@@ -152,7 +199,6 @@ export default function WalletScreen({ navigation }) {
     } catch (error) { Alert.alert("Export Failed", error.message); }
   };
 
-  // Pie Chart Data Calculation
   const getCategoryTotal = (cat) => expenses.filter(e => e.type === cat).reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
   
   const chartData = [
@@ -166,6 +212,17 @@ export default function WalletScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {loading && (
+        <View style={{
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          justifyContent: 'center', alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <ActivityIndicator size="large" color={COLORS.success} />
+          <Text style={{color: 'white', marginTop: 10}}>Saving Expense...</Text>
+        </View>
+      )}
       <View style={styles.header}>
         <Text style={styles.title}>Tax Wallet</Text>
         <View style={{flexDirection: 'row'}}>
@@ -242,16 +299,26 @@ export default function WalletScreen({ navigation }) {
                 </View>
 
                 {newExpense.receiptUri ? (
-                  <View style={styles.previewContainer}>
-                    <Image source={{ uri: newExpense.receiptUri }} style={styles.receiptPreview} />
-                    <TouchableOpacity style={styles.removeReceipt} onPress={() => setNewExpense({...newExpense, receiptUri: null})}>
-                      <Ionicons name="trash" size={20} color="white" />
-                    </TouchableOpacity>
-                  </View>
+                  // Check if image or non-image file
+                  newExpense.receiptUri.endsWith('.jpg') || newExpense.receiptUri.endsWith('.png') ? (
+                    <View style={styles.previewContainer}>
+                      <Image source={{ uri: newExpense.receiptUri }} style={styles.receiptPreview} />
+                      <TouchableOpacity style={styles.removeReceipt} onPress={() => setNewExpense({...newExpense, receiptUri: null, fileName: null})}>
+                        <Ionicons name="trash" size={20} color="white" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.previewContainer}>
+                      <Text style={{color: 'white', marginBottom: 5}}>{newExpense.fileName}</Text>
+                      <TouchableOpacity style={styles.removeReceipt} onPress={() => setNewExpense({...newExpense, receiptUri: null, fileName: null})}>
+                        <Ionicons name="trash" size={20} color="white" />
+                      </TouchableOpacity>
+                    </View>
+                  )
                 ) : (
                   <TouchableOpacity style={styles.scanBtn} onPress={handleScanReceipt}>
                     <Ionicons name="camera" size={24} color={COLORS.primary} />
-                    <Text style={styles.scanText}>Scan Receipt</Text>
+                    <Text style={styles.scanText}>Scan Receipt / Upload File</Text>
                   </TouchableOpacity>
                 )}
 
@@ -274,7 +341,7 @@ export default function WalletScreen({ navigation }) {
                   <Text style={styles.itemAmount}>-${parseFloat(item.amount).toFixed(2)}</Text>
                   {item.receiptUri && (
                     <TouchableOpacity onPress={() => setViewReceipt(item.receiptUri)}>
-                      <Ionicons name="receipt-outline" size={18} color={COLORS.primary} style={{marginTop: 4}} />
+                      <Ionicons name="document-outline" size={18} color={COLORS.primary} style={{marginTop: 4}} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -292,21 +359,26 @@ export default function WalletScreen({ navigation }) {
                 <Text style={styles.itemDate}>{item.timestamp?.toDate?.().toLocaleDateString() || 'Recent'}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[styles.itemAmount, {color: COLORS.success}]}>+${parseFloat(item.savings || 0).toFixed(2)}</Text>
-                <Text style={styles.itemSub}>{parseFloat(item.miles || 0).toFixed(1)} mi</Text>
+                <Text style={styles.itemAmount}>${parseFloat(item.savings).toFixed(2)}</Text>
               </View>
             </TouchableOpacity>
           ))
         )}
-        <View style={{height: 100}} />
       </ScrollView>
 
-      <Modal visible={!!viewReceipt} transparent={true} animationType="fade">
+      {/* Modal for viewing receipt */}
+      <Modal visible={!!viewReceipt} transparent animationType="fade">
         <View style={styles.modalContainer}>
-          <TouchableOpacity style={styles.closeModal} onPress={() => setViewReceipt(null)}>
-            <Ionicons name="close-circle" size={50} color="white" />
+          <TouchableOpacity style={styles.modalClose} onPress={() => setViewReceipt(null)}>
+            <Ionicons name="close" size={30} color="white" />
           </TouchableOpacity>
-          {viewReceipt && <Image source={{ uri: viewReceipt }} style={styles.fullReceipt} resizeMode="contain" />}
+          {viewReceipt && (viewReceipt.endsWith('.jpg') || viewReceipt.endsWith('.png') ? (
+            <Image source={{ uri: viewReceipt }} style={styles.modalImage} />
+          ) : (
+            <TouchableOpacity style={styles.modalFileBtn} onPress={() => Sharing.shareAsync(viewReceipt)}>
+              <Text style={{color: 'white', fontSize: 18}}>Open File</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </Modal>
     </SafeAreaView>
@@ -314,47 +386,47 @@ export default function WalletScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: 20 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, marginBottom: 20 },
-  title: { fontSize: 28, fontWeight: 'bold', color: 'white' },
-  exportBtn: { flexDirection: 'row', backgroundColor: '#333', padding: 8, borderRadius: 8, alignItems: 'center' },
-  exportText: { color: COLORS.primary, marginLeft: 5, fontWeight: 'bold' },
-  balanceCard: { backgroundColor: COLORS.card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#333', height: 140, justifyContent: 'center' },
-  balanceLabel: { color: COLORS.textSecondary, fontSize: 14, marginBottom: 5 },
-  balanceValue: { color: 'white', fontSize: 32, fontWeight: 'bold' },
-  lastExportText: { color: COLORS.success, fontSize: 12, marginTop: 5 },
-  chartContainer: { alignItems: 'center', marginBottom: 20, backgroundColor: '#1E1E1E', borderRadius: 15, padding: 10 },
-  sectionTitle: { color: 'white', fontWeight: 'bold', marginBottom: 10 },
-  tabRow: { flexDirection: 'row', marginBottom: 20, backgroundColor: '#333', borderRadius: 10, padding: 4 },
-  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
-  activeTab: { backgroundColor: '#1E1E1E' },
-  tabText: { color: '#888', fontWeight: 'bold' },
-  activeTabText: { color: 'white' },
-  addBtn: { flexDirection: 'row', backgroundColor: COLORS.primary, padding: 12, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
-  addBtnText: { color: 'black', fontWeight: 'bold', marginLeft: 5 },
-  formCard: { backgroundColor: '#252525', padding: 15, borderRadius: 12, marginBottom: 20 },
-  inputRow: { flexDirection: 'row', marginBottom: 15 },
-  input: { backgroundColor: '#121212', color: 'white', padding: 12, borderRadius: 8 },
-  typeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
-  typeChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#333' },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, alignItems: 'center', marginVertical: 10 },
+  title: { fontSize: 26, fontWeight: 'bold', color: COLORS.text },
+  exportBtn: { flexDirection: 'row', alignItems: 'center', padding: 8, borderRadius: 8, backgroundColor: '#EEE' },
+  exportText: { marginLeft: 5, fontWeight: '600', color: COLORS.primary },
+  balanceCard: { backgroundColor: COLORS.primary, padding: 20, borderRadius: 16, marginHorizontal: 20 },
+  balanceLabel: { color: 'white', fontSize: 14 },
+  balanceValue: { color: 'white', fontSize: 28, fontWeight: 'bold', marginTop: 5 },
+  lastExportText: { color: '#DDD', fontSize: 12, marginTop: 3 },
+  chartContainer: { alignItems: 'center', marginVertical: 15 },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 10 },
+  tabRow: { flexDirection: 'row', marginHorizontal: 20, marginBottom: 10 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  activeTab: { borderBottomColor: COLORS.primary },
+  tabText: { fontSize: 16, color: COLORS.text },
+  activeTabText: { color: COLORS.primary, fontWeight: 'bold' },
+  addBtn: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 10 },
+  addBtnText: { marginLeft: 5, fontWeight: 'bold', fontSize: 16 },
+  formCard: { backgroundColor: '#333', marginHorizontal: 20, borderRadius: 16, padding: 15 },
+  inputRow: { flexDirection: 'row', marginBottom: 10 },
+  input: { backgroundColor: '#222', color: 'white', padding: 10, borderRadius: 8 },
+  typeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  typeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#555' },
   activeType: { backgroundColor: COLORS.primary },
-  typeText: { color: 'white', fontSize: 12 },
-  activeTypeText: { color: 'black', fontWeight: 'bold' },
-  scanBtn: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 15, borderWidth: 1, borderColor: '#444', borderRadius: 8, marginBottom: 15, borderStyle: 'dashed' },
-  scanText: { color: COLORS.primary, marginLeft: 10 },
-  saveBtn: { backgroundColor: COLORS.success, padding: 15, borderRadius: 8, alignItems: 'center' },
-  saveText: { color: 'white', fontWeight: 'bold' },
-  previewContainer: { marginBottom: 15, alignItems: 'center' },
-  receiptPreview: { width: 100, height: 100, borderRadius: 10 },
-  removeReceipt: { position: 'absolute', top: -10, right: -10, backgroundColor: COLORS.danger, borderRadius: 15, padding: 5 },
-  itemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, padding: 15, borderRadius: 12, marginBottom: 10 },
-  iconBox: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
-  itemVendor: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  typeText: { color: 'white' },
+  activeTypeText: { color: 'white', fontWeight: 'bold' },
+  scanBtn: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  scanText: { marginLeft: 5, color: COLORS.primary, fontWeight: 'bold' },
+  saveBtn: { backgroundColor: COLORS.success, padding: 12, borderRadius: 12, alignItems: 'center' },
+  saveText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#444' },
+  iconBox: { width: 45, height: 45, borderRadius: 12, backgroundColor: '#444', justifyContent: 'center', alignItems: 'center' },
+  itemVendor: { color: 'white', fontWeight: '600' },
   itemDate: { color: '#888', fontSize: 12 },
-  itemAmount: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  itemSub: { color: '#888', fontSize: 12, textAlign: 'right' },
-  modalContainer: { flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' },
-  fullReceipt: { width: '100%', height: '80%' },
-  closeModal: { position: 'absolute', top: 50, right: 20, zIndex: 10 }
+  itemAmount: { color: 'white', fontWeight: '600' },
+  previewContainer: { marginVertical: 10, position: 'relative', alignItems: 'center' },
+  receiptPreview: { width: 100, height: 100, borderRadius: 12 },
+  removeReceipt: { position: 'absolute', top: -5, right: -5, backgroundColor: 'red', padding: 4, borderRadius: 12 },
+  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  modalClose: { position: 'absolute', top: 50, right: 20 },
+  modalImage: { width: '90%', height: '70%', borderRadius: 16 },
+  modalFileBtn: { padding: 20, backgroundColor: COLORS.primary, borderRadius: 16 }
 });

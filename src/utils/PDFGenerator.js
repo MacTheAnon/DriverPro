@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { IRS_RATE_PER_MILE } from './constants'; // FIX: shared constant so rate stays in sync
+import { IRS_RATE_PER_MILE } from '../constants/constants'; // FIX: shared constant so rate stays in sync
 
 // Build trip rows as a plain function to avoid nested template literal conflicts
 function buildTripRows(trips) {

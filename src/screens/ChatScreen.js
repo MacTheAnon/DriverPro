@@ -1,14 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Keyboard,
-    KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text,
-    TextInput, TouchableOpacity, View
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text,
+  TextInput, TouchableOpacity, View
 } from 'react-native';
-import { IRS_RATE_PER_MILE } from '../utils/constants'; // FIX: use shared constant so rate stays in sync with TrackScreen
+import { IRS_RATE_PER_MILE } from '../constants/constants'; // FIX: use shared constant so rate stays in sync with TrackScreen
 import COLORS from '../styles/colors';
 
 // FIX: rate is now sourced from constants.js — update it once there and it syncs everywhere
