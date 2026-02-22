@@ -1,18 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { deleteUser } from 'firebase/auth';
-import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore'; // Added updateDoc
+import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import { useContext, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { UserContext } from '../context/UserContext'; // Added Context import
+import { UserContext } from '../context/UserContext';
 import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
+const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
 const GEOFENCE_TASK = 'geofence-tracking-task';
 
 export default function SettingsScreen({ navigation }) {
-  const { user, isPremium } = useContext(UserContext); // Use Context
+  const { user, isPremium } = useContext(UserContext); 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
@@ -24,18 +25,22 @@ export default function SettingsScreen({ navigation }) {
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehicleYear, setVehicleYear] = useState('');
 
-  // Smart Schedule State
+  // Smart Automation State
+  const [autoTrack, setAutoTrack] = useState(false);
+  const [isGeofenceEnabled, setIsGeofenceEnabled] = useState(false);
   const [autoTagEnabled, setAutoTagEnabled] = useState(false);
   const [workStart, setWorkStart] = useState('09:00');
   const [workEnd, setWorkEnd] = useState('17:00');
-
-  // Geofence State
-  const [isGeofenceEnabled, setIsGeofenceEnabled] = useState(false);
 
   useEffect(() => {
     const fetchProfile = async () => {
       if (!user) return;
       try {
+        // Load Location Engine Status
+        const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+        setAutoTrack(hasStarted);
+
+        // Load DB Profile
         const docSnap = await getDoc(doc(db, "users", user.uid));
         if (docSnap.exists()) {
           const data = docSnap.data();
@@ -63,14 +68,43 @@ export default function SettingsScreen({ navigation }) {
     fetchProfile();
   }, [user]);
 
-  const toggleGeofence = async () => {
-    if (!isGeofenceEnabled) {
-      const { status: backStatus } = await Location.requestBackgroundPermissionsAsync();
-      
-      if (backStatus !== 'granted') {
-        Alert.alert("Permission Needed", "Geofencing requires 'Always Allow' location access in your phone settings.");
-        return;
+  // --- AUTOMATION TOGGLES ---
+  const handleToggleAutoTrack = async (turnOn) => {
+    if (!isPremium) {
+      navigation.navigate('Premium');
+      return;
+    }
+    
+    setAutoTrack(turnOn);
+    if (turnOn) {
+      const { status } = await Location.requestBackgroundPermissionsAsync();
+      if (status === 'granted') {
+        await Location.startLocationUpdatesAsync(BACKGROUND_TRACKING_TASK, {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 10000, 
+          distanceInterval: 50, 
+          showsBackgroundLocationIndicator: true, 
+        });
+        Alert.alert("Auto-Tracking Enabled", "We'll track your miles in the background.");
+      } else {
+        setAutoTrack(false);
+        Alert.alert("Permission Needed", "Allow background location to use this feature.");
       }
+    } else {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+    }
+  };
+
+  const toggleGeofence = async (turnOn) => {
+    if (!isPremium) {
+      navigation.navigate('Premium');
+      return;
+    }
+
+    setIsGeofenceEnabled(turnOn);
+    if (turnOn) {
+      const { status: backStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (backStatus !== 'granted') return setIsGeofenceEnabled(false);
 
       try {
         const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -82,30 +116,20 @@ export default function SettingsScreen({ navigation }) {
           notifyOnEnter: true,
           notifyOnExit: true,
         }]);
-
-        setIsGeofenceEnabled(true);
-        await setDoc(doc(db, "users", user.uid), { 
-          geofenceActive: true,
-          homeLat: location.coords.latitude,
-          homeLon: location.coords.longitude
-        }, { merge: true });
-        Alert.alert("Home Base Set 🏠", `Tracking will pause automatically when you arrive here.\nLat: ${location.coords.latitude.toFixed(4)}`);
+        await setDoc(doc(db, "users", user.uid), { geofenceActive: true, homeLat: location.coords.latitude, homeLon: location.coords.longitude }, { merge: true });
+        Alert.alert("Home Base Set 🏠", "Tracking will pause automatically here.");
       } catch (e) {
-        Alert.alert("Error", "Could not lock Home Base location. Try moving near a window.");
+        setIsGeofenceEnabled(false);
       }
     } else {
       await Location.stopGeofencingAsync(GEOFENCE_TASK);
-      setIsGeofenceEnabled(false);
       await setDoc(doc(db, "users", user.uid), { geofenceActive: false }, { merge: true });
-      Alert.alert("Disabled", "Auto-tracking turned off.");
     }
   };
 
   const handleSave = async () => {
-    if (!displayName.trim()) {
-      Alert.alert("Input Required", "Please enter your name.");
-      return;
-    }
+    if (!displayName.trim()) return Alert.alert("Input Required", "Please enter your name.");
+    
     setSaving(true);
     try {
       await setDoc(doc(db, "users", user.uid), {
@@ -129,7 +153,7 @@ export default function SettingsScreen({ navigation }) {
   const handleDeleteAccount = () => {
     Alert.alert(
       "Delete Account",
-      "Are you sure? This will permanently delete your data and tax records. This action cannot be undone.",
+      "Are you sure? This will permanently delete your data and tax records.",
       [
         { text: "Cancel", style: "cancel" },
         { 
@@ -196,9 +220,21 @@ export default function SettingsScreen({ navigation }) {
 
         {/* 3. SMART AUTOMATION */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>SMART AUTOMATION</Text>
+          <Text style={styles.sectionLabel}>PRO AUTOMATIONS</Text>
           <View style={styles.card}>
             
+            {/* Background Tracking Row */}
+            <View style={styles.autoRow}>
+              <View style={[styles.iconCircle, {backgroundColor: COLORS.primary}]}><Ionicons name="infinite" size={20} color="black" /></View>
+              <View style={{ flex: 1, marginLeft: 15 }}>
+                <Text style={styles.rowText}>Auto-Track Miles</Text>
+                <Text style={styles.subText}>Track trips in the background.</Text>
+              </View>
+              <Switch value={autoTrack} onValueChange={handleToggleAutoTrack} trackColor={{ false: "#767577", true: COLORS.primary }} />
+            </View>
+
+            <View style={styles.divider} />
+
             {/* Geofence Row */}
             <View style={styles.autoRow}>
               <View style={styles.iconCircle}><Ionicons name="map" size={20} color="white" /></View>
@@ -206,11 +242,7 @@ export default function SettingsScreen({ navigation }) {
                 <Text style={styles.rowText}>Home-Base Geofencing</Text>
                 <Text style={styles.subText}>Auto-pause tracking at home.</Text>
               </View>
-              <Switch 
-                value={isGeofenceEnabled} 
-                onValueChange={toggleGeofence}
-                trackColor={{ false: "#767577", true: COLORS.primary }}
-              />
+              <Switch value={isGeofenceEnabled} onValueChange={toggleGeofence} trackColor={{ false: "#767577", true: COLORS.primary }} />
             </View>
 
             <View style={styles.divider} />
@@ -220,7 +252,7 @@ export default function SettingsScreen({ navigation }) {
               <View style={styles.iconCircle}><Ionicons name="time" size={20} color="white" /></View>
               <View style={{ flex: 1, marginLeft: 15 }}>
                 <Text style={styles.rowText}>Work Hours Auto-Tag</Text>
-                <Text style={styles.subText}>Tag trips as 'Business' during work hours.</Text>
+                <Text style={styles.subText}>Tag trips as 'Business' during work.</Text>
               </View>
               <Switch 
                 value={autoTagEnabled} 
@@ -243,9 +275,13 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
 
-        {/* SAVE BUTTON */}
+        {/* ACCOUNT BUTTONS */}
         <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
             {saving ? <ActivityIndicator color="white" /> : <Text style={styles.saveText}>Save All Changes</Text>}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.saveBtn, {backgroundColor: '#333', marginTop: -15}]} onPress={() => navigation.navigate('Premium')}>
+            <Text style={styles.saveText}>{isPremium ? "Manage Premium Subscription" : "Upgrade to DriverPro+"}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.logoutBtn} onPress={() => auth.signOut()}>
@@ -281,7 +317,7 @@ const styles = StyleSheet.create({
   timeInput: { backgroundColor: '#252525', color: 'white', padding: 10, borderRadius: 8, width: 80, textAlign: 'center', fontWeight: 'bold' },
   divider: { height: 1, backgroundColor: '#333', marginVertical: 15 },
   logoutBtn: { marginBottom: 20, alignItems: 'center' },
-  logoutText: { color: COLORS.textSecondary, fontWeight: 'bold' },
+  logoutText: { color: COLORS.textSecondary, fontWeight: 'bold', fontSize: 16 },
   deleteBtn: { alignItems: 'center', marginBottom: 20 },
   deleteText: { color: COLORS.danger, fontSize: 12 }
 });

@@ -10,25 +10,25 @@ import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
 const { width, height } = Dimensions.get('window');
-const BACKGROUND_TRACKING_TASK = 'background-tracking-task'; 
+const BACKGROUND_TRACKING_TASK = 'background-tracking-task';
 
-// --- HELPER: Haversine Distance Calculation ---
+// --- HELPERS ---
+function deg2rad(deg) {
+  return deg * (Math.PI / 180);
+}
+
 function getDistanceFromLatLonInMiles(lat1, lon1, lat2, lon2) {
   const R = 3958.8; // Radius of the earth in miles
   const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1); 
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
+  const dLon = deg2rad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-    Math.sin(dLon/2) * Math.sin(dLon / 2); 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-  const d = R * c; 
-  return d;
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 }
 
-function deg2rad(deg) {
-  return deg * (Math.PI/180);
-}
 
 // --- FEATURE: Frequent Places Logic (Mock) ---
 const checkFrequentPlaces = (coords) => {
@@ -358,7 +358,7 @@ export default function TrackScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  map: { width: width, height: height },
+  map: { width, height },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
   loadingText: { color: 'white', fontSize: 18 },
   

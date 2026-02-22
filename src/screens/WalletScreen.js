@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
@@ -21,7 +21,6 @@ export default function WalletScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [totalSavings, setTotalSavings] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
-  
   // Expense Form State
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [newExpense, setNewExpense] = useState({ type: 'Gas', amount: '', vendor: '', receiptUri: null });
@@ -137,7 +136,8 @@ export default function WalletScreen({ navigation }) {
       const totalDeduction = trips.reduce((sum, trip) => sum + (parseFloat(trip.miles || 0) * 0.67), 0);
       
       // We use 'await' here because PDF generation is an asynchronous task
-      await generateTaxReport(trips, totalDeduction, "2026");
+      const currentYear = new Date().getFullYear().toString();
+      await generateTaxReport(trips, totalDeduction, currentYear);
     } catch (error) {
       Alert.alert("Export Error", "Something went wrong while creating the PDF.");
       console.error(error);
