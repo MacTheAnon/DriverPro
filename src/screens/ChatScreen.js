@@ -8,8 +8,8 @@ import {
   KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text,
   TextInput, TouchableOpacity, View
 } from 'react-native';
-import { IRS_RATE_PER_MILE } from '../constants/constants'; // FIX: use shared constant so rate stays in sync with TrackScreen
 import COLORS from '../styles/colors';
+import { IRS_RATE_PER_MILE } from '../utils/constants'; // FIX: use shared constant so rate stays in sync with TrackScreen
 
 // FIX: rate is now sourced from constants.js — update it once there and it syncs everywhere
 const SYSTEM_PROMPT = `You are TaxBot, an expert AI accountant for gig economy drivers (Uber, Lyft, DoorDash). 

@@ -4,7 +4,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
-import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
@@ -16,11 +15,20 @@ import { generateTaxReport } from '../utils/PDFGenerator';
 
 const screenWidth = Dimensions.get("window").width;
 
+// FIX: Robust image detection — .endsWith('.jpg') misses uppercase extensions (.JPG),
+// temp camera paths with no extension, and anything picked via DocumentPicker.
+function isImageUri(uri) {
+  if (!uri) return false;
+  const lower = uri.toLowerCase();
+  return lower.includes('.jpg') || lower.includes('.jpeg') || lower.includes('.png') || lower.includes('.webp') || lower.includes('.heic');
+}
+
 export default function WalletScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState('expenses'); 
   const [trips, setTrips] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false); // FIX: separate state for expense save so Firestore snapshots don't race with the save spinner
   
   // Expense Form State
   const [showExpenseForm, setShowExpenseForm] = useState(false);
@@ -98,8 +106,10 @@ export default function WalletScreen({ navigation }) {
   const pickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
-      if (result.type === 'success') {
-        setNewExpense({ ...newExpense, receiptUri: result.uri, fileName: result.name });
+      // FIX: expo-document-picker v5+ returns { canceled, assets } — not result.type === 'success'
+      if (!result.canceled && result.assets?.length > 0) {
+        const asset = result.assets[0];
+        setNewExpense({ ...newExpense, receiptUri: asset.uri, fileName: asset.name });
       }
     } catch (error) {
       Alert.alert("Error", "Could not select file.");
@@ -112,26 +122,25 @@ export default function WalletScreen({ navigation }) {
     const amount = parseFloat(newExpense.amount);
     if (isNaN(amount) || amount <= 0) return Alert.alert("Invalid Amount", "Please enter a valid number greater than 0.");
 
-    setLoading(true);
+    // FIX: Use separate saving state so Firestore snapshot listeners firing during save
+    // don't accidentally reset the spinner by calling setLoading(false).
+    setSaving(true);
 
     try {
       let finalReceiptUri = null;
 
       if (newExpense.receiptUri) {
+        // FIX: Save receipt locally (Firebase Storage was removed from firebaseConfig.js).
+        // Local storage matches DocumentUploadScreen and DocumentsScreen strategy.
         try {
-          const response = await fetch(newExpense.receiptUri);
-          const blob = await response.blob();
-
-          const storage = getStorage();
-          const ext = newExpense.fileName?.split('.').pop() || 'dat';
-          const storageRef = ref(storage, `receipts/${user.uid}/${Date.now()}.${ext}`);
-
-          await uploadBytes(storageRef, blob);
-          finalReceiptUri = await getDownloadURL(storageRef);
-        } catch (uploadError) {
-          console.error("Receipt upload failed:", uploadError);
-          Alert.alert("Upload Error", "Failed to upload receipt. Please try again.");
-          return;
+          const ext = newExpense.fileName?.split('.').pop()?.toLowerCase() || 'jpg';
+          const localPath = `${FileSystem.documentDirectory}receipt_${user.uid}_${Date.now()}.${ext}`;
+          await FileSystem.copyAsync({ from: newExpense.receiptUri, to: localPath });
+          finalReceiptUri = localPath;
+        } catch (saveError) {
+          console.error("Receipt local save failed:", saveError);
+          Alert.alert("Receipt Error", "Could not save receipt. The expense will be saved without it.");
+          // Don't return — save the expense anyway without the receipt
         }
       }
 
@@ -152,7 +161,7 @@ export default function WalletScreen({ navigation }) {
       console.error("Failed to save expense:", e);
       Alert.alert("Error", "Could not save expense. Please try again.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -212,7 +221,7 @@ export default function WalletScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      {loading && (
+      {saving && (
         <View style={{
           ...StyleSheet.absoluteFillObject,
           backgroundColor: 'rgba(0,0,0,0.5)',
@@ -299,8 +308,7 @@ export default function WalletScreen({ navigation }) {
                 </View>
 
                 {newExpense.receiptUri ? (
-                  // Check if image or non-image file
-                  newExpense.receiptUri.endsWith('.jpg') || newExpense.receiptUri.endsWith('.png') ? (
+                  isImageUri(newExpense.receiptUri) ? (
                     <View style={styles.previewContainer}>
                       <Image source={{ uri: newExpense.receiptUri }} style={styles.receiptPreview} />
                       <TouchableOpacity style={styles.removeReceipt} onPress={() => setNewExpense({...newExpense, receiptUri: null, fileName: null})}>
@@ -372,7 +380,7 @@ export default function WalletScreen({ navigation }) {
           <TouchableOpacity style={styles.modalClose} onPress={() => setViewReceipt(null)}>
             <Ionicons name="close" size={30} color="white" />
           </TouchableOpacity>
-          {viewReceipt && (viewReceipt.endsWith('.jpg') || viewReceipt.endsWith('.png') ? (
+          {viewReceipt && (isImageUri(viewReceipt) ? (
             <Image source={{ uri: viewReceipt }} style={styles.modalImage} />
           ) : (
             <TouchableOpacity style={styles.modalFileBtn} onPress={() => Sharing.shareAsync(viewReceipt)}>

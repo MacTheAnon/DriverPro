@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { deleteUser } from 'firebase/auth';
-import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { useContext, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -99,7 +99,8 @@ export default function SettingsScreen({ navigation }) {
         Alert.alert("Permission Needed", "Allow background location to use this feature.");
       }
     } else {
-      await Location.stopLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
+      const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRACKING_TASK).catch(() => false);
+      if (isRunning) await Location.stopLocationUpdatesAsync(BACKGROUND_TRACKING_TASK);
     }
   };
 
@@ -115,19 +116,36 @@ export default function SettingsScreen({ navigation }) {
       if (backStatus !== 'granted') return setIsGeofenceEnabled(false);
 
       try {
-        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        // FIX: Use already-saved home coords if available — don't silently overwrite
+        // the location the user set with handleSetHomeLocation.
+        let lat = homeLat;
+        let lon = homeLon;
+
+        if (!lat || !lon) {
+          // No home set yet — use current position and save it
+          const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          lat = location.coords.latitude;
+          lon = location.coords.longitude;
+          await setDoc(doc(db, "users", user.uid), { geofenceActive: true, homeLat: lat, homeLon: lon }, { merge: true });
+          setHomeLat(lat);
+          setHomeLon(lon);
+        } else {
+          // Home already set — just activate geofencing at the known coords
+          await setDoc(doc(db, "users", user.uid), { geofenceActive: true }, { merge: true });
+        }
+
         await Location.startGeofencingAsync(GEOFENCE_TASK, [{
           identifier: 'HOME_BASE',
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
+          latitude: lat,
+          longitude: lon,
           radius: 150,
           notifyOnEnter: true,
           notifyOnExit: true,
         }]);
-        await setDoc(doc(db, "users", user.uid), { geofenceActive: true, homeLat: location.coords.latitude, homeLon: location.coords.longitude }, { merge: true });
-        Alert.alert("Home Base Set 🏠", "Tracking will pause automatically here.");
+        Alert.alert("Home Base Geofencing On 🏠", "Tracking will pause automatically when you arrive home.");
       } catch (e) {
         setIsGeofenceEnabled(false);
+        console.error("Geofence error:", e);
       }
     } else {
       await Location.stopGeofencingAsync(GEOFENCE_TASK);
@@ -202,21 +220,50 @@ export default function SettingsScreen({ navigation }) {
   const handleDeleteAccount = () => {
     Alert.alert(
       "Delete Account",
-      "Are you sure? This will permanently delete your data and tax records.",
+      "Are you sure? This will permanently delete your account, all trips, expenses, and tax records. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         { 
           text: "Delete Forever", 
           style: "destructive",
           onPress: async () => {
-             try {
-               setLoading(true);
-               await deleteDoc(doc(db, "users", user.uid));
-               await deleteUser(user);
-             } catch (error) {
-               setLoading(false);
-               Alert.alert("Error", "Please re-login and try again (Security Requirement).");
-             }
+            try {
+              setLoading(true);
+
+              // Step 1: Delete all trips for this user
+              const tripsQuery = query(collection(db, "trips"), where("userId", "==", user.uid));
+              const tripsSnap = await getDocs(tripsQuery);
+              const batch = writeBatch(db);
+              tripsSnap.forEach(d => batch.delete(d.ref));
+
+              // Step 2: Delete all expenses for this user
+              const expensesQuery = query(collection(db, "expenses"), where("userId", "==", user.uid));
+              const expensesSnap = await getDocs(expensesQuery);
+              expensesSnap.forEach(d => batch.delete(d.ref));
+
+              // Step 3: Delete user profile doc
+              batch.delete(doc(db, "users", user.uid));
+
+              // Commit all Firestore deletes together
+              await batch.commit();
+
+              // Step 4: Delete Firebase Auth account LAST.
+              // If this fails (needs re-auth), the Firestore data is already gone.
+              // That's acceptable — the account is effectively dead with no data.
+              // The alternative (deleting auth first) is worse: data orphaned under a deleted account.
+              await deleteUser(user);
+
+            } catch (error) {
+              setLoading(false);
+              if (error.code === 'auth/requires-recent-login') {
+                Alert.alert(
+                  "Re-Authentication Required",
+                  "For security, please sign out and sign back in, then try deleting your account again."
+                );
+              } else {
+                Alert.alert("Error", "Could not delete account. Please try again.");
+              }
+            }
           }
         }
       ]
@@ -354,7 +401,8 @@ export default function SettingsScreen({ navigation }) {
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
-          <Text style={styles.deleteText}>Delete Account & Data</Text>
+          <Ionicons name="trash-outline" size={16} color={COLORS.danger} style={{ marginRight: 6 }} />
+          <Text style={styles.deleteText}>Delete Account & All Data</Text>
         </TouchableOpacity>
         
         <View style={{height: 40}} /> 
@@ -385,6 +433,6 @@ const styles = StyleSheet.create({
   homeBtnText: { color: COLORS.textSecondary, fontSize: 13, fontWeight: '600' },
   logoutBtn: { marginBottom: 20, alignItems: 'center' },
   logoutText: { color: COLORS.textSecondary, fontWeight: 'bold', fontSize: 16 },
-  deleteBtn: { alignItems: 'center', marginBottom: 20 },
-  deleteText: { color: COLORS.danger, fontSize: 12 }
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20, paddingVertical: 12, borderWidth: 1, borderColor: COLORS.danger, borderRadius: 10 },
+  deleteText: { color: COLORS.danger, fontSize: 15, fontWeight: '600' }
 });

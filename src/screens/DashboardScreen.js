@@ -10,6 +10,13 @@ import COLORS from '../styles/colors';
 
 const BACKGROUND_TRACKING_TASK = 'background-tracking-task'; 
 
+// Safe parse: guards against NaN strings (e.g. "NaN") stored in Firestore by buggy earlier saves.
+// parseFloat("NaN") returns NaN, and "NaN" is truthy so || 0 doesn't catch it.
+function safeFloat(val) {
+  const n = parseFloat(val);
+  return isNaN(n) ? 0 : n;
+}
+
 export default function DashboardScreen({ navigation }) {
   const [stats, setStats] = useState({ milesToday: '0.0', taxSavings: '0.00', totalDeduction: '0.00' });
   const [isTrackingActive, setIsTrackingActive] = useState(false); 
@@ -60,10 +67,9 @@ export default function DashboardScreen({ navigation }) {
 
       snapshot.forEach((doc) => {
         const data = doc.data();
-        const miles = parseFloat(data.miles || 0);
-        const savings = parseFloat(data.savings || 0);
+        const miles = safeFloat(data.miles);
+        const savings = safeFloat(data.savings);
         totalS += savings;
-        // FIX: guard against null timestamp before calling toDate()
         const tripDate = data.timestamp?.toDate?.();
         if (tripDate && tripDate >= startOfDay) {
           todayM += miles;
@@ -83,7 +89,7 @@ export default function DashboardScreen({ navigation }) {
       let expAcc = 0;
       snapshot.forEach((doc) => {
         const data = doc.data();
-        expAcc += parseFloat(data.amount || 0);
+        expAcc += safeFloat(data.amount);
       });
       // FIX: update both state (for display) and ref (so trips snapshot closure reads latest value)
       totalExpensesRef.current = expAcc;
@@ -129,7 +135,9 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
-  const progress = Math.min((parseFloat(stats.totalDeduction) / monthlyGoal) * 100, 100);
+  const progress = monthlyGoal > 0
+    ? Math.min((safeFloat(stats.totalDeduction) / monthlyGoal) * 100, 100)
+    : 0;
 
   return (
     <SafeAreaView style={styles.container}>
