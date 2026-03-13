@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system'; // Note: 'expo-file-system/legacy' is deprecated, use standard
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
@@ -15,8 +16,7 @@ import { generateTaxReport } from '../utils/PDFGenerator';
 
 const screenWidth = Dimensions.get("window").width;
 
-// FIX: Robust image detection — .endsWith('.jpg') misses uppercase extensions (.JPG),
-// temp camera paths with no extension, and anything picked via DocumentPicker.
+// Robust image detection
 function isImageUri(uri) {
   if (!uri) return false;
   const lower = uri.toLowerCase();
@@ -28,7 +28,7 @@ export default function WalletScreen({ navigation }) {
   const [trips, setTrips] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false); // FIX: separate state for expense save so Firestore snapshots don't race with the save spinner
+  const [saving, setSaving] = useState(false); // Separated state so listeners don't race
   
   // Expense Form State
   const [showExpenseForm, setShowExpenseForm] = useState(false);
@@ -66,7 +66,7 @@ export default function WalletScreen({ navigation }) {
   const totalExpenses = useMemo(() => 
     expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0), [expenses]);
 
-  // Receipt/File Upload
+  // Receipt/File Upload Handlers
   const handleScanReceipt = async () => {
     Alert.alert("Upload Receipt", "Choose an option", [
       { text: "Camera", onPress: () => pickImage(true) },
@@ -93,20 +93,13 @@ export default function WalletScreen({ navigation }) {
     if (!result.canceled) {
       const uri = result.assets[0].uri;
       const fileName = `receipt_${Date.now()}.jpg`;
-      const newPath = FileSystem.documentDirectory + fileName;
-      try {
-        await FileSystem.copyAsync({ from: uri, to: newPath });
-        setNewExpense({ ...newExpense, receiptUri: newPath, fileName });
-      } catch (e) {
-        Alert.alert("Error", "Could not save receipt image.");
-      }
+      setNewExpense({ ...newExpense, receiptUri: uri, fileName });
     }
   };
 
   const pickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
-      // FIX: expo-document-picker v5+ returns { canceled, assets } — not result.type === 'success'
       if (!result.canceled && result.assets?.length > 0) {
         const asset = result.assets[0];
         setNewExpense({ ...newExpense, receiptUri: asset.uri, fileName: asset.name });
@@ -122,25 +115,27 @@ export default function WalletScreen({ navigation }) {
     const amount = parseFloat(newExpense.amount);
     if (isNaN(amount) || amount <= 0) return Alert.alert("Invalid Amount", "Please enter a valid number greater than 0.");
 
-    // FIX: Use separate saving state so Firestore snapshot listeners firing during save
-    // don't accidentally reset the spinner by calling setLoading(false).
-    setSaving(true);
+    setSaving(true); // Trigger saving overlay
 
     try {
       let finalReceiptUri = null;
 
+      // UPLOAD TO FIREBASE STORAGE (Protects user data if app is deleted)
       if (newExpense.receiptUri) {
-        // FIX: Save receipt locally (Firebase Storage was removed from firebaseConfig.js).
-        // Local storage matches DocumentUploadScreen and DocumentsScreen strategy.
         try {
+          const response = await fetch(newExpense.receiptUri);
+          const blob = await response.blob();
+          const storage = getStorage();
           const ext = newExpense.fileName?.split('.').pop()?.toLowerCase() || 'jpg';
-          const localPath = `${FileSystem.documentDirectory}receipt_${user.uid}_${Date.now()}.${ext}`;
-          await FileSystem.copyAsync({ from: newExpense.receiptUri, to: localPath });
-          finalReceiptUri = localPath;
-        } catch (saveError) {
-          console.error("Receipt local save failed:", saveError);
-          Alert.alert("Receipt Error", "Could not save receipt. The expense will be saved without it.");
-          // Don't return — save the expense anyway without the receipt
+          const storageRef = ref(storage, `receipts/${user.uid}/${Date.now()}.${ext}`);
+          
+          await uploadBytes(storageRef, blob);
+          finalReceiptUri = await getDownloadURL(storageRef); // Get the public cloud URL
+        } catch (uploadError) {
+          console.error("Cloud upload failed:", uploadError);
+          Alert.alert("Upload Error", "Failed to upload receipt image to the cloud. Expense not saved.");
+          setSaving(false);
+          return;
         }
       }
 
@@ -149,9 +144,9 @@ export default function WalletScreen({ navigation }) {
         type: newExpense.type,
         amount: amount,
         vendor: newExpense.vendor.trim(),
-        receiptUri: finalReceiptUri,
-        timestamp: new Date(),
-        fileName: newExpense.fileName
+        receiptUri: finalReceiptUri, // Save the cloud URL to Firestore
+        fileName: newExpense.fileName,
+        timestamp: new Date()
       });
 
       setNewExpense({ type: "Gas", amount: "", vendor: "", receiptUri: null, fileName: null });
@@ -288,7 +283,7 @@ export default function WalletScreen({ navigation }) {
         {activeTab === 'expenses' ? (
           <View>
             <TouchableOpacity style={styles.addBtn} onPress={() => setShowExpenseForm(!showExpenseForm)}>
-              <Ionicons name={showExpenseForm ? "close" : "add"} size={24} color="black" />
+              <Ionicons name={showExpenseForm ? "close" : "add"} size={24} color="white" />
               <Text style={styles.addBtnText}>{showExpenseForm ? "Cancel" : "Add Expense"}</Text>
             </TouchableOpacity>
 
@@ -372,6 +367,7 @@ export default function WalletScreen({ navigation }) {
             </TouchableOpacity>
           ))
         )}
+        <View style={{height: 100}} />
       </ScrollView>
 
       {/* Modal for viewing receipt */}
@@ -398,7 +394,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, alignItems: 'center', marginVertical: 10 },
   title: { fontSize: 26, fontWeight: 'bold', color: COLORS.text },
-  exportBtn: { flexDirection: 'row', alignItems: 'center', padding: 8, borderRadius: 8, backgroundColor: '#EEE' },
+  exportBtn: { flexDirection: 'row', alignItems: 'center', padding: 8, borderRadius: 8, backgroundColor: '#333' },
   exportText: { marginLeft: 5, fontWeight: '600', color: COLORS.primary },
   balanceCard: { backgroundColor: COLORS.primary, padding: 20, borderRadius: 16, marginHorizontal: 20 },
   balanceLabel: { color: 'white', fontSize: 14 },
@@ -411,30 +407,30 @@ const styles = StyleSheet.create({
   activeTab: { borderBottomColor: COLORS.primary },
   tabText: { fontSize: 16, color: COLORS.text },
   activeTabText: { color: COLORS.primary, fontWeight: 'bold' },
-  addBtn: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 10 },
-  addBtnText: { marginLeft: 5, fontWeight: 'bold', fontSize: 16 },
-  formCard: { backgroundColor: '#333', marginHorizontal: 20, borderRadius: 16, padding: 15 },
+  addBtn: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 10, padding: 10, backgroundColor: COLORS.primary, borderRadius: 10, justifyContent: 'center' },
+  addBtnText: { marginLeft: 5, fontWeight: 'bold', fontSize: 16, color: 'white' },
+  formCard: { backgroundColor: '#222', marginHorizontal: 20, borderRadius: 16, padding: 15, marginBottom: 15 },
   inputRow: { flexDirection: 'row', marginBottom: 10 },
-  input: { backgroundColor: '#222', color: 'white', padding: 10, borderRadius: 8 },
+  input: { backgroundColor: '#121212', color: 'white', padding: 10, borderRadius: 8 },
   typeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  typeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#555' },
+  typeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#333' },
   activeType: { backgroundColor: COLORS.primary },
   typeText: { color: 'white' },
-  activeTypeText: { color: 'white', fontWeight: 'bold' },
-  scanBtn: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  activeTypeText: { color: 'black', fontWeight: 'bold' },
+  scanBtn: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, padding: 15, borderWidth: 1, borderColor: '#444', borderStyle: 'dashed', borderRadius: 8, justifyContent: 'center' },
   scanText: { marginLeft: 5, color: COLORS.primary, fontWeight: 'bold' },
   saveBtn: { backgroundColor: COLORS.success, padding: 12, borderRadius: 12, alignItems: 'center' },
   saveText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  itemRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#444' },
-  iconBox: { width: 45, height: 45, borderRadius: 12, backgroundColor: '#444', justifyContent: 'center', alignItems: 'center' },
-  itemVendor: { color: 'white', fontWeight: '600' },
+  itemRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
+  iconBox: { width: 45, height: 45, borderRadius: 12, backgroundColor: '#222', justifyContent: 'center', alignItems: 'center' },
+  itemVendor: { color: 'white', fontWeight: '600', fontSize: 16 },
   itemDate: { color: '#888', fontSize: 12 },
-  itemAmount: { color: 'white', fontWeight: '600' },
+  itemAmount: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   previewContainer: { marginVertical: 10, position: 'relative', alignItems: 'center' },
   receiptPreview: { width: 100, height: 100, borderRadius: 12 },
-  removeReceipt: { position: 'absolute', top: -5, right: -5, backgroundColor: 'red', padding: 4, borderRadius: 12 },
+  removeReceipt: { position: 'absolute', top: -10, right: 100, backgroundColor: COLORS.danger, padding: 4, borderRadius: 12 },
   modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
-  modalClose: { position: 'absolute', top: 50, right: 20 },
-  modalImage: { width: '90%', height: '70%', borderRadius: 16 },
+  modalClose: { position: 'absolute', top: 50, right: 20, zIndex: 10 },
+  modalImage: { width: '90%', height: '70%', borderRadius: 16, resizeMode: 'contain' },
   modalFileBtn: { padding: 20, backgroundColor: COLORS.primary, borderRadius: 16 }
 });
