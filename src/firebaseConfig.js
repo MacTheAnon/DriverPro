@@ -1,8 +1,8 @@
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
 import { getReactNativePersistence, initializeAuth } from 'firebase/auth';
-import { getFirestore } from "firebase/firestore";
-// REMOVED: import { getStorage } ...
+// 1. Swap getFirestore for initializeFirestore and import persistentLocalCache
+import { initializeFirestore, persistentLocalCache } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDPKxSCMQvzbonJEduiexEvo7WgXlQjzio",
@@ -21,8 +21,9 @@ const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(ReactNativeAsyncStorage)
 });
 
-const db = getFirestore(app);
-// REMOVED: const storage = getStorage(app);
+// 2. Initialize Firestore with explicit offline caching enabled
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache()
+});
 
-// Only export auth and db
 export { auth, db };

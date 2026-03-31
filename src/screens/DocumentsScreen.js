@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 
 const { width } = Dimensions.get('window');
@@ -13,31 +15,88 @@ export default function DocumentsScreen({ navigation }) {
   const [registrationImg, setRegistrationImg] = useState(null);
   const [fullScreenImage, setFullScreenImage] = useState(null);
 
+  const user = auth.currentUser;
+
   useEffect(() => {
     loadImages();
   }, []);
 
+  // FIX: Read from Firestore first (source of truth set by DocumentUploadScreen),
+  // then fall back to AsyncStorage for locally-set images.
   const loadImages = async () => {
     try {
+      // Try Firestore first
+      if (user) {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          const insUri = data.documents?.insuranceLocalUri;
+          const regUri = data.documents?.registrationLocalUri;
+          if (insUri) setInsuranceImg(insUri);
+          if (regUri) setRegistrationImg(regUri);
+          if (insUri || regUri) return; // Firestore had data, no need to check AsyncStorage
+        }
+      }
+      // Fall back to AsyncStorage (for images set directly in this screen)
       const ins = await AsyncStorage.getItem('doc_insurance');
       const reg = await AsyncStorage.getItem('doc_registration');
       if (ins) setInsuranceImg(ins);
       if (reg) setRegistrationImg(reg);
     } catch (e) {
-      console.log("Error loading docs:", e);
+      console.log('Error loading docs:', e);
     }
   };
 
-  const pickImage = async (type) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  // Save path to both AsyncStorage and Firestore so both screens stay in sync
+  const saveImagePermanently = async (uri, type) => {
+    try {
+      const fileName = `${type}_${Date.now()}.jpg`;
+      const newPath = FileSystem.documentDirectory + fileName;
+      await FileSystem.copyAsync({ from: uri, to: newPath });
+
+      const key = type === 'insurance' ? 'doc_insurance' : 'doc_registration';
+      await AsyncStorage.setItem(key, newPath);
+
+      // FIX: also persist to Firestore so DocumentUploadScreen and this screen share state
+      if (user) {
+        const firestoreKey = type === 'insurance' ? 'insuranceLocalUri' : 'registrationLocalUri';
+        await setDoc(doc(db, 'users', user.uid), {
+          documents: { [firestoreKey]: newPath }
+        }, { merge: true });
+      }
+
+      if (type === 'insurance') setInsuranceImg(newPath);
+      else setRegistrationImg(newPath);
+    } catch (e) {
+      Alert.alert('Error', 'Could not save document locally.');
+      console.error(e);
+    }
+  };
+
+  // --- CHOICE MENU ---
+  const handleUploadRequest = (type) => {
+    Alert.alert(
+      "Upload Document",
+      "How would you like to add this document?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Choose from Files", onPress: () => pickFromGallery(type) },
+        { text: "Take Photo", onPress: () => openCamera(type) },
+      ]
+    );
+  };
+
+  // 1. Camera Logic
+  const openCamera = async (type) => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert("Permission Denied", "We need access to your photos to save your documents.");
+      Alert.alert("Permission Denied", "Camera access is needed to take a photo of your document.");
       return;
     }
 
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 1,
+    let result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
     });
 
     if (!result.canceled) {
@@ -45,22 +104,21 @@ export default function DocumentsScreen({ navigation }) {
     }
   };
 
-  const saveImagePermanently = async (uri, type) => {
-    try {
-      const fileName = `${type}.jpg`;
-      const newPath = FileSystem.documentDirectory + fileName;
+  // 2. Gallery/File Logic
+  const pickFromGallery = async (type) => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert("Permission Denied", "Gallery access is needed to pick a file.");
+      return;
+    }
 
-      await FileSystem.copyAsync({ from: uri, to: newPath });
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+    });
 
-      const key = type === 'insurance' ? 'doc_insurance' : 'doc_registration';
-      await AsyncStorage.setItem(key, newPath);
-
-      if (type === 'insurance') setInsuranceImg(newPath);
-      else setRegistrationImg(newPath);
-
-      Alert.alert("Saved", "Document secure and ready for offline use.");
-    } catch (e) {
-      Alert.alert("Error", "Could not save document locally.");
+    if (!result.canceled) {
+      saveImagePermanently(result.assets[0].uri, type);
     }
   };
 
@@ -73,6 +131,13 @@ export default function DocumentsScreen({ navigation }) {
         onPress: async () => {
           const key = type === 'insurance' ? 'doc_insurance' : 'doc_registration';
           await AsyncStorage.removeItem(key);
+          // FIX: also clear from Firestore so DocumentUploadScreen stays in sync
+          if (user) {
+            const firestoreKey = type === 'insurance' ? 'insuranceLocalUri' : 'registrationLocalUri';
+            await setDoc(doc(db, 'users', user.uid), {
+              documents: { [firestoreKey]: null }
+            }, { merge: true });
+          }
           if (type === 'insurance') setInsuranceImg(null);
           else setRegistrationImg(null);
         }
@@ -93,10 +158,10 @@ export default function DocumentsScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.subtitle}>
-          Keep these updated for traffic stops. Photos are stored locally on your device.
+          Tap to add your Insurance & Registration. Access these offline during traffic stops.
         </Text>
 
-        {/* INSURANCE */}
+        {/* INSURANCE CARD */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Insurance Card</Text>
@@ -106,19 +171,20 @@ export default function DocumentsScreen({ navigation }) {
               </TouchableOpacity>
             )}
           </View>
+          
           {insuranceImg ? (
             <TouchableOpacity onPress={() => setFullScreenImage(insuranceImg)}>
               <Image source={{ uri: insuranceImg }} style={styles.docImage} />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.uploadPlaceholder} onPress={() => pickImage('insurance')}>
+            <TouchableOpacity style={styles.uploadPlaceholder} onPress={() => handleUploadRequest('insurance')}>
               <Ionicons name="camera-outline" size={40} color="#666" />
-              <Text style={styles.uploadText}>Tap to Upload Insurance</Text>
+              <Text style={styles.uploadText}>Tap to Add Insurance</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* REGISTRATION */}
+        {/* REGISTRATION CARD */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Vehicle Registration</Text>
@@ -128,14 +194,15 @@ export default function DocumentsScreen({ navigation }) {
               </TouchableOpacity>
             )}
           </View>
+          
           {registrationImg ? (
             <TouchableOpacity onPress={() => setFullScreenImage(registrationImg)}>
               <Image source={{ uri: registrationImg }} style={styles.docImage} />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.uploadPlaceholder} onPress={() => pickImage('registration')}>
+            <TouchableOpacity style={styles.uploadPlaceholder} onPress={() => handleUploadRequest('registration')}>
               <Ionicons name="camera-outline" size={40} color="#666" />
-              <Text style={styles.uploadText}>Tap to Upload Registration</Text>
+              <Text style={styles.uploadText}>Tap to Add Registration</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -163,12 +230,16 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: 'bold', color: 'white' },
   scroll: { padding: 20 },
   subtitle: { color: '#888', textAlign: 'center', marginBottom: 20 },
+  
   card: { backgroundColor: '#1E1E1E', borderRadius: 15, padding: 15, marginBottom: 20, borderWidth: 1, borderColor: '#333' },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
   cardTitle: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  
   uploadPlaceholder: { height: 200, backgroundColor: '#121212', borderRadius: 10, borderStyle: 'dashed', borderWidth: 1, borderColor: '#444', justifyContent: 'center', alignItems: 'center' },
   uploadText: { color: '#666', marginTop: 10 },
+  
   docImage: { width: '100%', height: 200, borderRadius: 10, resizeMode: 'cover' },
+
   modalContainer: { flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' },
   fullImage: { width: '100%', height: '80%' },
   closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10 }

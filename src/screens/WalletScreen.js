@@ -1,114 +1,162 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system'; // Note: 'expo-file-system/legacy' is deprecated, use standard
+import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
-import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
-import { useContext, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { PieChart } from 'react-native-chart-kit'; // Make sure this is installed
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
+import { useContext, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { PieChart } from 'react-native-chart-kit';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { UserContext } from '../context/UserContext'; // <--- Brain Import
+import { UserContext } from '../context/UserContext';
 import { auth, db } from '../firebaseConfig';
 import COLORS from '../styles/colors';
 import { generateTaxReport } from '../utils/PDFGenerator';
 
 const screenWidth = Dimensions.get("window").width;
 
+// Robust image detection
+function isImageUri(uri) {
+  if (!uri) return false;
+  const lower = uri.toLowerCase();
+  return lower.includes('.jpg') || lower.includes('.jpeg') || lower.includes('.png') || lower.includes('.webp') || lower.includes('.heic');
+}
+
 export default function WalletScreen({ navigation }) {
-  const [activeTab, setActiveTab] = useState('trips'); 
+  const [activeTab, setActiveTab] = useState('expenses'); 
   const [trips, setTrips] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [totalSavings, setTotalSavings] = useState(0);
-  const [totalExpenses, setTotalExpenses] = useState(0);
-  const [profile, setProfile] = useState({ businessName: '', taxId: '', displayName: '', lastExport: null });
-
+  const [saving, setSaving] = useState(false); // Separated state so listeners don't race
+  
+  // Expense Form State
   const [showExpenseForm, setShowExpenseForm] = useState(false);
-  const [newExpense, setNewExpense] = useState({ type: 'Gas', amount: '', vendor: '' });
+  const [newExpense, setNewExpense] = useState({ type: 'Gas', amount: '', vendor: '', receiptUri: null, fileName: null });
+  const [viewReceipt, setViewReceipt] = useState(null); 
 
-  const { isPremium } = useContext(UserContext); // <--- Check Premium Status
+  const { isPremium } = useContext(UserContext); 
   const user = auth.currentUser;
 
+  // Real-time Data Listeners
   useEffect(() => {
     if (!user) return;
 
-    // 1. Fetch Profile
-    getDoc(doc(db, "users", user.uid)).then(docSnap => {
-      if (docSnap.exists()) setProfile(docSnap.data());
-    });
-
-    // 2. Real-time Trip Logs
     const qTrips = query(collection(db, "trips"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubTrips = onSnapshot(qTrips, (snapshot) => {
-      let milesAcc = 0;
-      let savingsAcc = 0;
-      const list = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({ id: doc.id, ...data });
-        milesAcc += parseFloat(data.miles || 0);
-        savingsAcc += parseFloat(data.savings || 0);
-      });
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTrips(list);
-      setTotalSavings(savingsAcc.toFixed(2));
+      setLoading(false);
     });
 
-    // 3. Real-time Expense Logs
     const qExpenses = query(collection(db, "expenses"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
     const unsubExpenses = onSnapshot(qExpenses, (snapshot) => {
-      let expAcc = 0;
-      const list = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({ id: doc.id, ...data });
-        expAcc += parseFloat(data.amount || 0);
-      });
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setExpenses(list);
-      setTotalExpenses(expAcc.toFixed(2));
       setLoading(false);
     });
 
     return () => { unsubTrips(); unsubExpenses(); };
   }, [user]);
 
-  // --- PREMIUM PDF EXPORT ---
-  const handleExportPDF = () => {
-    if (!isPremium) {
-      navigation.navigate('Premium'); // Send to Paywall
-      return;
-    }
+  // Memoized Totals
+  const totalSavings = useMemo(() => 
+    trips.reduce((sum, t) => sum + (parseFloat(t.savings) || 0), 0), [trips]);
+  
+  const totalExpenses = useMemo(() => 
+    expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0), [expenses]);
 
-    if (trips.length === 0) {
-      Alert.alert("No Data", "Drive some miles first!");
-      return;
-    }
-
-    const totalDeduction = trips.reduce((sum, trip) => sum + (parseFloat(trip.miles || 0) * 0.67), 0);
-    generateTaxReport(trips, totalDeduction, "2026");
+  // Receipt/File Upload Handlers
+  const handleScanReceipt = async () => {
+    Alert.alert("Upload Receipt", "Choose an option", [
+      { text: "Camera", onPress: () => pickImage(true) },
+      { text: "Gallery", onPress: () => pickImage(false) },
+      { text: "Files", onPress: pickFile },
+      { text: "Cancel", style: "cancel" }
+    ]);
   };
 
-  // --- STANDARD CSV EXPORT ---
-  const handleExportCSV = async () => {
-    if (trips.length === 0 && expenses.length === 0) return Alert.alert("No Data", "Track some trips first!");
+  const pickImage = async (useCamera) => {
+    let result;
+    const permission = useCamera 
+      ? await ImagePicker.requestCameraPermissionsAsync() 
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    const exportDate = new Date().toLocaleString();
-    let csv = `DRIVER PRO TAX REPORT\nGenerated: ${exportDate}\n\n`;
-    
-    csv += `--- TRIPS ---\nDate,Miles,Savings\n`;
-    trips.forEach(t => {
-      csv += `${t.timestamp?.toDate().toLocaleDateString()},${t.miles},${t.savings}\n`;
-    });
+    if (permission.status !== 'granted') {
+      return Alert.alert("Permission denied", "We need access to your camera/gallery to scan receipts.");
+    }
 
-    csv += `\n--- EXPENSES ---\nDate,Type,Vendor,Amount\n`;
-    expenses.forEach(e => {
-      csv += `${e.timestamp?.toDate().toLocaleDateString()},${e.type},${e.vendor},${e.amount}\n`;
-    });
+    result = useCamera 
+      ? await ImagePicker.launchCameraAsync({ quality: 0.5 }) 
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.5 });
 
-    const fileUri = `${FileSystem.documentDirectory}Tax_Report.csv`;
+    if (!result.canceled) {
+      const uri = result.assets[0].uri;
+      const fileName = `receipt_${Date.now()}.jpg`;
+      setNewExpense({ ...newExpense, receiptUri: uri, fileName });
+    }
+  };
+
+  const pickFile = async () => {
     try {
-      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
-      await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', UTI: 'public.comma-separated-values-text' });
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (!result.canceled && result.assets?.length > 0) {
+        const asset = result.assets[0];
+        setNewExpense({ ...newExpense, receiptUri: asset.uri, fileName: asset.name });
+      }
     } catch (error) {
-      Alert.alert("Export Failed", error.message);
+      Alert.alert("Error", "Could not select file.");
+    }
+  };
+
+  const addExpense = async () => {
+    if (!newExpense.vendor.trim()) return Alert.alert("Missing Info", "Please enter a vendor.");
+
+    const amount = parseFloat(newExpense.amount);
+    if (isNaN(amount) || amount <= 0) return Alert.alert("Invalid Amount", "Please enter a valid number greater than 0.");
+
+    setSaving(true); // Trigger saving overlay
+
+    try {
+      let finalReceiptUri = null;
+
+      // UPLOAD TO FIREBASE STORAGE (Protects user data if app is deleted)
+      if (newExpense.receiptUri) {
+        try {
+          const response = await fetch(newExpense.receiptUri);
+          const blob = await response.blob();
+          const storage = getStorage();
+          const ext = newExpense.fileName?.split('.').pop()?.toLowerCase() || 'jpg';
+          const storageRef = ref(storage, `receipts/${user.uid}/${Date.now()}.${ext}`);
+          
+          await uploadBytes(storageRef, blob);
+          finalReceiptUri = await getDownloadURL(storageRef); // Get the public cloud URL
+        } catch (uploadError) {
+          console.error("Cloud upload failed:", uploadError);
+          Alert.alert("Upload Error", "Failed to upload receipt image to the cloud. Expense not saved.");
+          setSaving(false);
+          return;
+        }
+      }
+
+      await addDoc(collection(db, "expenses"), {
+        userId: user.uid,
+        type: newExpense.type,
+        amount: amount,
+        vendor: newExpense.vendor.trim(),
+        receiptUri: finalReceiptUri, // Save the cloud URL to Firestore
+        fileName: newExpense.fileName,
+        timestamp: new Date()
+      });
+
+      setNewExpense({ type: "Gas", amount: "", vendor: "", receiptUri: null, fileName: null });
+      setShowExpenseForm(false);
+
+    } catch (e) {
+      console.error("Failed to save expense:", e);
+      Alert.alert("Error", "Could not save expense. Please try again.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -119,34 +167,66 @@ export default function WalletScreen({ navigation }) {
     ]);
   };
 
-  const addExpense = async () => {
-    if (!newExpense.amount || !newExpense.vendor) return Alert.alert("Missing Info", "Enter amount and vendor.");
+  const handleExportPDF = async () => {
+    if (!isPremium) {
+      navigation.navigate('Premium');
+      return;
+    }
+    if (trips.length === 0) return Alert.alert("No Data", "Drive some miles first!");
     try {
-      await addDoc(collection(db, "expenses"), {
-        userId: user.uid,
-        type: newExpense.type,
-        amount: parseFloat(newExpense.amount),
-        vendor: newExpense.vendor,
-        timestamp: new Date()
-      });
-      setShowExpenseForm(false);
-      setNewExpense({ type: 'Gas', amount: '', vendor: '' });
-    } catch (e) { Alert.alert("Error", "Could not save expense."); }
+      const currentYear = new Date().getFullYear().toString();
+      await generateTaxReport(trips, totalSavings, currentYear);
+    } catch (error) {
+      Alert.alert("Export Error", "Something went wrong while creating the PDF.");
+    }
   };
 
-  // Prepare Chart Data
+  const handleExportCSV = async () => {
+    if (trips.length === 0 && expenses.length === 0) return Alert.alert("No Data", "Track some trips first!");
+    
+    let csv = `DRIVER PRO TAX REPORT\nGenerated: ${new Date().toLocaleString()}\n\n--- TRIPS ---\nDate,Miles,Savings\n`;
+    trips.forEach(t => { 
+        const date = t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString() : 'N/A';
+        csv += `${date},${t.miles},${t.savings}\n`; 
+    });
+    
+    csv += `\n--- EXPENSES ---\nDate,Type,Vendor,Amount,Receipt\n`;
+    expenses.forEach(e => { 
+        const date = e.timestamp?.toDate ? e.timestamp.toDate().toLocaleDateString() : 'N/A';
+        csv += `${date},${e.type},${e.vendor},${e.amount},${e.receiptUri ? "Yes" : "No"}\n`; 
+    });
+
+    const fileUri = `${FileSystem.documentDirectory}Tax_Report.csv`;
+    try {
+      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
+      await Sharing.shareAsync(fileUri);
+    } catch (error) { Alert.alert("Export Failed", error.message); }
+  };
+
+  const getCategoryTotal = (cat) => expenses.filter(e => e.type === cat).reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+  
   const chartData = [
-    { name: 'Gas', population: expenses.filter(e => e.type === 'Gas').reduce((sum, e) => sum + e.amount, 0) || 10, color: '#FF6384', legendFontColor: '#aaa', legendFontSize: 12 },
-    { name: 'Maint', population: expenses.filter(e => e.type === 'Repair').reduce((sum, e) => sum + e.amount, 0) || 10, color: '#36A2EB', legendFontColor: '#aaa', legendFontSize: 12 },
-    { name: 'Other', population: expenses.filter(e => e.type !== 'Gas' && e.type !== 'Repair').reduce((sum, e) => sum + e.amount, 0) || 10, color: '#FFCE56', legendFontColor: '#aaa', legendFontSize: 12 },
+    { name: 'Gas', population: getCategoryTotal('Gas') || 0.01, color: '#FF6384', legendFontColor: '#aaa', legendFontSize: 12 },
+    { name: 'Repair', population: getCategoryTotal('Repair') || 0.01, color: '#36A2EB', legendFontColor: '#aaa', legendFontSize: 12 },
+    { name: 'Meal', population: getCategoryTotal('Meal') || 0.01, color: '#FFCE56', legendFontColor: '#aaa', legendFontSize: 12 },
+    { name: 'Other', population: getCategoryTotal('Other') || 0.01, color: '#4BC0C0', legendFontColor: '#aaa', legendFontSize: 12 },
   ];
 
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
   return (
     <SafeAreaView style={styles.container}>
-      
-      {/* HEADER */}
+      {saving && (
+        <View style={{
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          justifyContent: 'center', alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <ActivityIndicator size="large" color={COLORS.success} />
+          <Text style={{color: 'white', marginTop: 10}}>Saving Expense...</Text>
+        </View>
+      )}
       <View style={styles.header}>
         <Text style={styles.title}>Tax Wallet</Text>
         <View style={{flexDirection: 'row'}}>
@@ -154,7 +234,7 @@ export default function WalletScreen({ navigation }) {
             <Ionicons name="document-text-outline" size={20} color={COLORS.primary} />
             <Text style={styles.exportText}>CSV</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.exportBtn, {backgroundColor: '#2e7d32'}]} onPress={handleExportPDF}>
+          <TouchableOpacity style={[styles.exportBtn, {backgroundColor: COLORS.success}]} onPress={handleExportPDF}>
             <Ionicons name="print-outline" size={20} color="white" />
             <Text style={[styles.exportText, {color: 'white'}]}>PDF</Text>
           </TouchableOpacity>
@@ -162,157 +242,195 @@ export default function WalletScreen({ navigation }) {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-
-        {/* BALANCE CARDS */}
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
           <View style={[styles.balanceCard, { width: screenWidth - 40, marginRight: 10 }]}>
-            <Text style={styles.balanceLabel}>Potential Deduction</Text>
-            <Text style={styles.balanceValue}>${(parseFloat(totalSavings) + parseFloat(totalExpenses)).toFixed(2)}</Text>
-            <Text style={styles.lastExportText}>Includes Mileage & Expenses</Text>
+            <Text style={styles.balanceLabel}>Total Tax Write-Off</Text>
+            <Text style={styles.balanceValue}>${(totalSavings + totalExpenses).toFixed(2)}</Text>
+            <Text style={styles.lastExportText}>Combined Mileage + Expenses</Text>
+          </View>
+          <View style={[styles.balanceCard, { width: screenWidth - 40, backgroundColor: '#2A2A2A' }]}>
+             <Text style={styles.balanceLabel}>Breakdown</Text>
+             <Text style={[styles.balanceValue, {fontSize: 22, marginTop: 5}]}>Expenses: ${totalExpenses.toFixed(2)}</Text>
+             <Text style={[styles.balanceValue, {fontSize: 22}]}>Mileage: ${totalSavings.toFixed(2)}</Text>
           </View>
         </ScrollView>
 
-        {/* PREMIUM ANALYTICS SECTION */}
-        <View style={styles.chartContainer}>
-          <Text style={styles.sectionTitle}>Monthly Spend Breakdown</Text>
-          
-          {isPremium ? (
-             <PieChart
-               data={chartData}
-               width={screenWidth - 40}
-               height={200}
-               chartConfig={{ color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})` }}
-               accessor={"population"}
-               backgroundColor={"transparent"}
-               paddingLeft={"0"}
-               center={[10, 0]}
-               absolute
-             />
-          ) : (
-            <TouchableOpacity style={styles.lockedContainer} onPress={() => navigation.navigate('Premium')}>
-              <Ionicons name="lock-closed" size={40} color="#666" />
-              <Text style={styles.lockedText}>Upgrade to see Spending Analytics</Text>
-              <View style={styles.upgradeButton}>
-                <Text style={styles.upgradeBtnText}>Unlock Pro</Text>
-              </View>
-            </TouchableOpacity>
-          )}
-        </View>
+        {expenses.length > 0 && (
+          <View style={styles.chartContainer}>
+            <Text style={styles.sectionTitle}>Expense Breakdown</Text>
+            <PieChart
+              data={chartData}
+              width={screenWidth - 60}
+              height={200}
+              chartConfig={{ color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})` }}
+              accessor={"population"}
+              backgroundColor={"transparent"}
+              paddingLeft={"15"}
+              absolute
+            />
+          </View>
+        )}
 
-        {/* TABS */}
         <View style={styles.tabRow}>
-          <TouchableOpacity onPress={() => setActiveTab('trips')} style={[styles.tab, activeTab === 'trips' && styles.activeTab]}>
-            <Text style={[styles.tabText, activeTab === 'trips' && styles.activeTabText]}>Trips</Text>
-          </TouchableOpacity>
           <TouchableOpacity onPress={() => setActiveTab('expenses')} style={[styles.tab, activeTab === 'expenses' && styles.activeTab]}>
             <Text style={[styles.tabText, activeTab === 'expenses' && styles.activeTabText]}>Expenses</Text>
           </TouchableOpacity>
+          <TouchableOpacity onPress={() => setActiveTab('trips')} style={[styles.tab, activeTab === 'trips' && styles.activeTab]}>
+            <Text style={[styles.tabText, activeTab === 'trips' && styles.activeTabText]}>Mileage Logs</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* CONTENT LIST */}
-        {activeTab === 'trips' ? (
-          trips.length === 0 ? <Text style={styles.emptyText}>No trips recorded yet.</Text> :
-          trips.map(t => (
-            <TouchableOpacity key={t.id} style={styles.itemRow} onLongPress={() => confirmDelete(t.id, "trips")}>
-              <View style={[styles.iconBox, { backgroundColor: 'rgba(45, 108, 223, 0.1)' }]}>
-                <Ionicons name="car" size={20} color={COLORS.primary} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 15 }}>
-                <Text style={styles.itemTitle}>{t.timestamp?.toDate().toLocaleDateString()}</Text>
-                <Text style={styles.itemSub}>{t.miles} miles</Text>
-              </View>
-              <Text style={styles.itemValue}>+${t.savings}</Text>
-            </TouchableOpacity>
-          ))
-        ) : (
-          <>
+        {activeTab === 'expenses' ? (
+          <View>
             <TouchableOpacity style={styles.addBtn} onPress={() => setShowExpenseForm(!showExpenseForm)}>
-              <Ionicons name="add-circle" size={20} color="white" />
-              <Text style={styles.addBtnText}>Add New Expense</Text>
+              <Ionicons name={showExpenseForm ? "close" : "add"} size={24} color="white" />
+              <Text style={styles.addBtnText}>{showExpenseForm ? "Cancel" : "Add Expense"}</Text>
             </TouchableOpacity>
 
             {showExpenseForm && (
               <View style={styles.formCard}>
+                <View style={styles.inputRow}>
+                  <TextInput style={[styles.input, {flex: 1}]} placeholder="Vendor" placeholderTextColor="#666" value={newExpense.vendor} onChangeText={t => setNewExpense({...newExpense, vendor: t})} />
+                  <TextInput style={[styles.input, {width: 100, marginLeft: 10}]} placeholder="$0.00" keyboardType="numeric" placeholderTextColor="#666" value={newExpense.amount} onChangeText={t => setNewExpense({...newExpense, amount: t})} />
+                </View>
+
                 <View style={styles.typeRow}>
-                  {['Gas', 'Repair', 'Ins.', 'Meal'].map(type => (
-                    <TouchableOpacity key={type} onPress={() => setNewExpense({...newExpense, type})} 
-                      style={[styles.typeChip, newExpense.type === type && styles.activeChip]}>
-                      <Text style={[styles.chipText, newExpense.type === type && styles.activeChipText]}>{type}</Text>
+                  {['Gas', 'Repair', 'Meal', 'Other'].map(type => (
+                    <TouchableOpacity key={type} style={[styles.typeChip, newExpense.type === type && styles.activeType]} onPress={() => setNewExpense({...newExpense, type})}>
+                      <Text style={[styles.typeText, newExpense.type === type && styles.activeTypeText]}>{type}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
-                <TextInput style={styles.input} placeholder="Vendor (e.g. Shell)" placeholderTextColor="#666" 
-                  value={newExpense.vendor} onChangeText={t => setNewExpense({...newExpense, vendor: t})} />
-                <TextInput style={styles.input} placeholder="Amount (0.00)" placeholderTextColor="#666" keyboardType="numeric"
-                  value={newExpense.amount} onChangeText={t => setNewExpense({...newExpense, amount: t})} />
+
+                {newExpense.receiptUri ? (
+                  isImageUri(newExpense.receiptUri) ? (
+                    <View style={styles.previewContainer}>
+                      <Image source={{ uri: newExpense.receiptUri }} style={styles.receiptPreview} />
+                      <TouchableOpacity style={styles.removeReceipt} onPress={() => setNewExpense({...newExpense, receiptUri: null, fileName: null})}>
+                        <Ionicons name="trash" size={20} color="white" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.previewContainer}>
+                      <Text style={{color: 'white', marginBottom: 5}}>{newExpense.fileName}</Text>
+                      <TouchableOpacity style={styles.removeReceipt} onPress={() => setNewExpense({...newExpense, receiptUri: null, fileName: null})}>
+                        <Ionicons name="trash" size={20} color="white" />
+                      </TouchableOpacity>
+                    </View>
+                  )
+                ) : (
+                  <TouchableOpacity style={styles.scanBtn} onPress={handleScanReceipt}>
+                    <Ionicons name="camera" size={24} color={COLORS.primary} />
+                    <Text style={styles.scanText}>Scan Receipt / Upload File</Text>
+                  </TouchableOpacity>
+                )}
+
                 <TouchableOpacity style={styles.saveBtn} onPress={addExpense}>
-                  <Text style={styles.saveBtnText}>Save Expense</Text>
+                  <Text style={styles.saveText}>Save Expense</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {expenses.map(e => (
-              <TouchableOpacity key={e.id} style={styles.itemRow} onLongPress={() => confirmDelete(e.id, "expenses")}>
-                <View style={[styles.iconBox, { backgroundColor: 'rgba(231, 76, 60, 0.1)' }]}>
-                  <Ionicons name="receipt" size={20} color={COLORS.danger} />
+            {expenses.map((item) => (
+              <TouchableOpacity key={item.id} style={styles.itemRow} onLongPress={() => confirmDelete(item.id, 'expenses')}>
+                <View style={styles.iconBox}>
+                  <Ionicons name={item.type === 'Gas' ? 'color-fill' : item.type === 'Repair' ? 'build' : 'card'} size={24} color={COLORS.primary} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 15 }}>
-                  <Text style={styles.itemTitle}>{e.vendor}</Text>
-                  <Text style={styles.itemSub}>{e.type} • {e.timestamp?.toDate().toLocaleDateString()}</Text>
+                  <Text style={styles.itemVendor}>{item.vendor}</Text>
+                  <Text style={styles.itemDate}>{item.timestamp?.toDate?.().toLocaleDateString() || 'Recent'}</Text>
                 </View>
-                <Text style={[styles.itemValue, { color: COLORS.text }]}>-${e.amount}</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.itemAmount}>-${parseFloat(item.amount).toFixed(2)}</Text>
+                  {item.receiptUri && (
+                    <TouchableOpacity onPress={() => setViewReceipt(item.receiptUri)}>
+                      <Ionicons name="document-outline" size={18} color={COLORS.primary} style={{marginTop: 4}} />
+                    </TouchableOpacity>
+                  )}
+                </View>
               </TouchableOpacity>
             ))}
-          </>
+          </View>
+        ) : (
+          trips.map((item) => (
+            <TouchableOpacity key={item.id} style={styles.itemRow} onLongPress={() => confirmDelete(item.id, 'trips')}>
+              <View style={[styles.iconBox, {backgroundColor: '#2A2A2A'}]}>
+                <Ionicons name="navigate" size={24} color="#4BC0C0" />
+              </View>
+              <View style={{ flex: 1, marginLeft: 15 }}>
+                <Text style={styles.itemVendor}>{item.type || 'Business'} Trip</Text>
+                <Text style={styles.itemDate}>{item.timestamp?.toDate?.().toLocaleDateString() || 'Recent'}</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.itemAmount}>${parseFloat(item.savings).toFixed(2)}</Text>
+              </View>
+            </TouchableOpacity>
+          ))
         )}
+        <View style={{height: 100}} />
       </ScrollView>
+
+      {/* Modal for viewing receipt */}
+      <Modal visible={!!viewReceipt} transparent animationType="fade">
+        <View style={styles.modalContainer}>
+          <TouchableOpacity style={styles.modalClose} onPress={() => setViewReceipt(null)}>
+            <Ionicons name="close" size={30} color="white" />
+          </TouchableOpacity>
+          {viewReceipt && (isImageUri(viewReceipt) ? (
+            <Image source={{ uri: viewReceipt }} style={styles.modalImage} />
+          ) : (
+            <TouchableOpacity style={styles.modalFileBtn} onPress={() => Sharing.shareAsync(viewReceipt)}>
+              <Text style={{color: 'white', fontSize: 18}}>Open File</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: 20 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 20 },
-  title: { fontSize: 28, fontWeight: 'bold', color: 'white' },
-  exportBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A2F4B', padding: 8, borderRadius: 8 },
-  exportText: { color: COLORS.primary, marginLeft: 5, fontWeight: 'bold' },
-  
-  balanceCard: { backgroundColor: COLORS.card, padding: 20, borderRadius: 15, borderWidth: 1, borderColor: '#333' },
-  balanceLabel: { color: COLORS.textSecondary, fontSize: 12, marginBottom: 5 },
-  balanceValue: { color: 'white', fontSize: 32, fontWeight: 'bold' },
-  lastExportText: { color: COLORS.success, fontSize: 12, marginTop: 10 },
-  
-  // Chart & Locked Styles
-  chartContainer: { backgroundColor: '#1E1E1E', borderRadius: 15, padding: 15, marginBottom: 20 },
-  sectionTitle: { color: '#888', fontSize: 14, marginBottom: 10, fontWeight: '600' },
-  lockedContainer: { height: 180, justifyContent: 'center', alignItems: 'center', backgroundColor: '#252525', borderRadius: 10 },
-  lockedText: { color: '#888', marginTop: 10, marginBottom: 15 },
-  upgradeButton: { backgroundColor: '#2e7d32', paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20 },
-  upgradeBtnText: { color: 'white', fontWeight: 'bold' },
-
-  tabRow: { flexDirection: 'row', marginBottom: 20, backgroundColor: '#222', borderRadius: 10, padding: 4 },
-  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
-  activeTab: { backgroundColor: '#333' },
-  tabText: { color: '#888', fontWeight: 'bold' },
-  activeTabText: { color: 'white' },
-  
-  itemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, padding: 15, borderRadius: 12, marginBottom: 10 },
-  iconBox: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  itemTitle: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  itemSub: { color: '#888', fontSize: 12 },
-  itemValue: { color: COLORS.success, fontWeight: 'bold', fontSize: 16 },
-  
-  addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 15, borderStyle: 'dashed', borderWidth: 1, borderColor: '#444', borderRadius: 12, marginBottom: 15 },
-  addBtnText: { color: 'white', marginLeft: 10, fontWeight: 'bold' },
-  formCard: { backgroundColor: '#222', padding: 15, borderRadius: 12, marginBottom: 15 },
-  typeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
-  typeChip: { backgroundColor: '#333', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 },
-  activeChip: { backgroundColor: COLORS.primary },
-  chipText: { color: 'white', fontSize: 12 },
-  activeChipText: { fontWeight: 'bold' },
-  input: { backgroundColor: '#111', color: 'white', padding: 12, borderRadius: 8, marginBottom: 10 },
-  saveBtn: { backgroundColor: COLORS.success, padding: 12, borderRadius: 8, alignItems: 'center' },
-  saveBtnText: { color: 'white', fontWeight: 'bold' },
-  emptyText: { color: '#666', textAlign: 'center', marginTop: 20 }
+  container: { flex: 1, backgroundColor: COLORS.background },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, alignItems: 'center', marginVertical: 10 },
+  title: { fontSize: 26, fontWeight: 'bold', color: COLORS.text },
+  exportBtn: { flexDirection: 'row', alignItems: 'center', padding: 8, borderRadius: 8, backgroundColor: '#333' },
+  exportText: { marginLeft: 5, fontWeight: '600', color: COLORS.primary },
+  balanceCard: { backgroundColor: COLORS.primary, padding: 20, borderRadius: 16, marginHorizontal: 20 },
+  balanceLabel: { color: 'white', fontSize: 14 },
+  balanceValue: { color: 'white', fontSize: 28, fontWeight: 'bold', marginTop: 5 },
+  lastExportText: { color: '#DDD', fontSize: 12, marginTop: 3 },
+  chartContainer: { alignItems: 'center', marginVertical: 15 },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 10 },
+  tabRow: { flexDirection: 'row', marginHorizontal: 20, marginBottom: 10 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  activeTab: { borderBottomColor: COLORS.primary },
+  tabText: { fontSize: 16, color: COLORS.text },
+  activeTabText: { color: COLORS.primary, fontWeight: 'bold' },
+  addBtn: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 10, padding: 10, backgroundColor: COLORS.primary, borderRadius: 10, justifyContent: 'center' },
+  addBtnText: { marginLeft: 5, fontWeight: 'bold', fontSize: 16, color: 'white' },
+  formCard: { backgroundColor: '#222', marginHorizontal: 20, borderRadius: 16, padding: 15, marginBottom: 15 },
+  inputRow: { flexDirection: 'row', marginBottom: 10 },
+  input: { backgroundColor: '#121212', color: 'white', padding: 10, borderRadius: 8 },
+  typeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  typeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#333' },
+  activeType: { backgroundColor: COLORS.primary },
+  typeText: { color: 'white' },
+  activeTypeText: { color: 'black', fontWeight: 'bold' },
+  scanBtn: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, padding: 15, borderWidth: 1, borderColor: '#444', borderStyle: 'dashed', borderRadius: 8, justifyContent: 'center' },
+  scanText: { marginLeft: 5, color: COLORS.primary, fontWeight: 'bold' },
+  saveBtn: { backgroundColor: COLORS.success, padding: 12, borderRadius: 12, alignItems: 'center' },
+  saveText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
+  iconBox: { width: 45, height: 45, borderRadius: 12, backgroundColor: '#222', justifyContent: 'center', alignItems: 'center' },
+  itemVendor: { color: 'white', fontWeight: '600', fontSize: 16 },
+  itemDate: { color: '#888', fontSize: 12 },
+  itemAmount: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  previewContainer: { marginVertical: 10, position: 'relative', alignItems: 'center' },
+  receiptPreview: { width: 100, height: 100, borderRadius: 12 },
+  removeReceipt: { position: 'absolute', top: -10, right: 100, backgroundColor: COLORS.danger, padding: 4, borderRadius: 12 },
+  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  modalClose: { position: 'absolute', top: 50, right: 20, zIndex: 10 },
+  modalImage: { width: '90%', height: '70%', borderRadius: 16, resizeMode: 'contain' },
+  modalFileBtn: { padding: 20, backgroundColor: COLORS.primary, borderRadius: 16 }
 });

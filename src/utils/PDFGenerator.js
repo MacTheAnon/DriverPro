@@ -1,9 +1,20 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { IRS_RATE_PER_MILE } from './constants'; // FIX: shared constant so rate stays in sync
+
+// Build trip rows as a plain function to avoid nested template literal conflicts
+function buildTripRows(trips) {
+  return trips.map((trip) => {
+    const tripDate = trip.timestamp?.toDate ? trip.timestamp.toDate() : new Date();
+    const value = (parseFloat(trip.miles || 0) * IRS_RATE_PER_MILE).toFixed(2);
+    const date = tripDate.toLocaleDateString();
+    const miles = trip.miles || 0;
+    const type = trip.type || 'Business';
+    return '<tr><td>' + date + '</td><td>' + miles + ' mi</td><td>' + type + '</td><td>$' + value + '</td></tr>';
+  }).join('');
+}
 
 export const generateTaxReport = async (trips, totalDeduction, year) => {
-  // 1. Create the HTML Template
-  // This looks like a real document with a header and table
   const html = `
     <html>
       <head>
@@ -19,10 +30,11 @@ export const generateTaxReport = async (trips, totalDeduction, year) => {
         </style>
       </head>
       <body>
-        <h1>DriverPro 🚗 Tax Report (${year})</h1>
+        <h1>DriverPro Tax Report (${year})</h1>
         
         <div class="summary">
           <p>Total Trips: <strong>${trips.length}</strong></p>
+          <p>IRS Mileage Rate: <strong>$${IRS_RATE_PER_MILE.toFixed(2)}/mile</strong></p>
           <p>Total Potential Deduction:</p>
           <p class="total">$${totalDeduction.toFixed(2)}</p>
         </div>
@@ -37,14 +49,7 @@ export const generateTaxReport = async (trips, totalDeduction, year) => {
             </tr>
           </thead>
           <tbody>
-            ${trips.map(trip => `
-              <tr>
-                <td>${new Date(trip.date.seconds * 1000).toLocaleDateString()}</td>
-                <td>${trip.distance.toFixed(2)} mi</td>
-                <td>${trip.type || 'Business'}</td>
-                <td>$${(trip.distance * 0.67).toFixed(2)}</td>
-              </tr>
-            `).join('')}
+            ${buildTripRows(trips)}
           </tbody>
         </table>
         
@@ -55,14 +60,7 @@ export const generateTaxReport = async (trips, totalDeduction, year) => {
     </html>
   `;
 
-  // 2. Generate the PDF
-  try {
-    const { uri } = await Print.printToFileAsync({ html });
-    console.log('PDF Generated at:', uri);
-
-    // 3. Share/Save the File
-    await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
-  } catch (error) {
-    console.error("Error generating PDF:", error);
-  }
+  // Errors bubble up to WalletScreen which handles the user-facing alert
+  const { uri } = await Print.printToFileAsync({ html });
+  await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
 };

@@ -4,12 +4,10 @@ import Animated, {
   interpolate,
   useAnimatedRef,
   useAnimatedStyle,
-  useScrollOffset,
+  useScrollViewOffset, // FIX: useScrollOffset was removed in Reanimated v3, correct API is useScrollViewOffset
 } from 'react-native-reanimated';
 
-// FIXED: Sibling import for ThemedView
 import { ThemedView } from './themed-view';
-// FIXED: ADD THIS MISSING LINE or the app crashes
 import { useThemeColor } from '../hooks/useThemeColor';
 
 const HEADER_HEIGHT = 250;
@@ -28,7 +26,7 @@ export default function ParallaxScrollView({
   const backgroundColor = useThemeColor({}, 'background');
   const colorScheme = useColorScheme() ?? 'light';
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
-  const scrollOffset = useScrollOffset(scrollRef);
+  const scrollOffset = useScrollViewOffset(scrollRef);
 
   const headerAnimatedStyle = useAnimatedStyle(() => {
     return {

@@ -1,5 +1,5 @@
 import { onAuthStateChanged } from 'firebase/auth';
-import { createContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useEffect, useState } from 'react';
 import { auth } from '../firebaseConfig';
 import SubscriptionManager from '../utils/SubscriptionManager';
 
@@ -10,28 +10,34 @@ export const UserProvider = ({ children }) => {
   const [isPremium, setIsPremium] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // FIX: Wrapped in useCallback so the function reference is stable across renders.
+  // Without this, useEffect's closure captures the initial version and never sees
+  // updated state if this function ever depends on it in the future.
+  const refreshPremiumStatus = useCallback(async () => {
+    const status = await SubscriptionManager.getCustomerInfo();
+    console.log('🔄 Context Refreshing Premium Status:', status);
+    setIsPremium(status);
+  }, []);
+
   useEffect(() => {
-    // Listen for Auth Changes
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      
+
       if (currentUser) {
-        // If logged in, check if they paid
         await SubscriptionManager.configure();
-        const premiumStatus = await SubscriptionManager.getCustomerInfo();
-        setIsPremium(premiumStatus);
+        await refreshPremiumStatus();
       } else {
         setIsPremium(false);
       }
-      
+
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [refreshPremiumStatus]);
 
   return (
-    <UserContext.Provider value={{ user, isPremium, loading }}>
+    <UserContext.Provider value={{ user, isPremium, loading, refreshPremiumStatus }}>
       {children}
     </UserContext.Provider>
   );

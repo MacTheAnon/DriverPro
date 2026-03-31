@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { StatusBar } from 'expo-status-bar';
@@ -39,6 +40,16 @@ export default function LoginScreen({ navigation }) {
 
   const handleBiometricAuth = async () => {
     try {
+      // Check if we have a stored user session to restore
+      const storedUID = await AsyncStorage.getItem('biometric_uid');
+      if (!storedUID) {
+        Alert.alert(
+          "Biometrics Not Set Up",
+          "Please sign in with Google or Apple first. Once signed in, biometrics will be available on your next visit."
+        );
+        return;
+      }
+
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: 'Authenticate to access DriverPro',
         fallbackLabel: 'Use Passcode',
@@ -46,10 +57,20 @@ export default function LoginScreen({ navigation }) {
       });
 
       if (result.success) {
-        // In a real app, you would retrieve a stored token here.
-        // For this demo, we can't "auto-login" without a token storage strategy.
-        // We will just alert for now or trigger a token refresh if available.
-        Alert.alert("Verified", "Biometrics accepted. (Token logic needed for full login)");
+        // Biometric passed — check if Firebase still has an active session
+        // (Firebase auth persists across app restarts natively on mobile)
+        if (auth.currentUser) {
+          // Already authenticated by Firebase persistence, biometric just confirmed identity
+          navigation.replace('Dashboard');
+        } else {
+          // Session expired — can't silently re-auth without credentials, prompt full login
+          Alert.alert(
+            "Session Expired",
+            "Your session has expired. Please sign in again with Google or Apple.",
+            [{ text: "OK" }]
+          );
+          await AsyncStorage.removeItem('biometric_uid');
+        }
       }
     } catch (error) {
       console.error(error);
@@ -70,7 +91,9 @@ export default function LoginScreen({ navigation }) {
       if (identityToken) {
         const provider = new OAuthProvider('apple.com');
         const fbCredential = provider.credential({ idToken: identityToken });
-        await signInWithCredential(auth, fbCredential);
+        const result = await signInWithCredential(auth, fbCredential);
+        // Store UID so biometric login can verify session on next app open
+        await AsyncStorage.setItem('biometric_uid', result.user.uid);
       }
     } catch (e) {
       if (e.code !== 'ERR_REQUEST_CANCELED') {
@@ -88,7 +111,9 @@ export default function LoginScreen({ navigation }) {
       if (!idToken) throw new Error("Google ID Token not found.");
 
       const googleCredential = GoogleAuthProvider.credential(idToken);
-      await signInWithCredential(auth, googleCredential);
+      const result = await signInWithCredential(auth, googleCredential);
+      // Store UID so biometric login can verify session on next app open
+      await AsyncStorage.setItem('biometric_uid', result.user.uid);
     } catch (error) {
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {
         console.log("User manually closed Google popup.");
